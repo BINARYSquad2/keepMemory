@@ -1,0 +1,20 @@
+{
+  "id": "day_001",
+  "date": "2026-11-19",
+  "folderTitle": "Тёплый вечер после дождя",
+  "text": "Текст записи о дне...",
+  "photoUrl": "https://example.com/photo.jpg",
+  "track": {
+    "title": "Song Name",
+    "artist": "Artist",
+    "previewUrl": "https://example.com/preview.mp3",
+    "genre": "indie"
+  },
+  "style": {
+    "palette": ["#1E293B", "#F59E0B", "#E2E8F0"],
+    "grainIntensity": 0.35,
+    "artStyle": "analog_film",
+    "motionSpeed": 0.6,
+    "typographyVariant": "serif_editorial"
+  }
+}

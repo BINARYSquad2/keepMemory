@@ -1,66 +1,76 @@
-import { SymbolView } from 'expo-symbols';
-import { Link, Tabs } from 'expo-router';
-import { Platform, Pressable } from 'react-native';
-
-import Colors from '@/constants/Colors';
-import { useColorScheme } from '@/components/useColorScheme';
-import { useClientOnlyValue } from '@/components/useClientOnlyValue';
+import { Tabs } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { THEME } from '../../constants/theme';
 
 export default function TabLayout() {
-  const colorScheme = useColorScheme();
-
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: Colors[colorScheme].tint,
-        // Disable the static render of the header on web
-        // to prevent a hydration error in React Navigation v6.
-        headerShown: useClientOnlyValue(false, true),
-      }}>
+        headerStyle: {
+          backgroundColor: THEME.colors.bg,
+          borderBottomWidth: 1,
+          borderBottomColor: THEME.colors.border,
+        },
+        headerTitleStyle: {
+          fontFamily: THEME.fonts.mono,
+          fontSize: 13,
+          letterSpacing: 1.5,
+          textTransform: 'uppercase',
+        },
+        headerTintColor: THEME.colors.text,
+        tabBarStyle: {
+          backgroundColor: THEME.colors.bg,
+          borderTopWidth: 1,
+          borderTopColor: THEME.colors.border,
+        },
+        tabBarLabelStyle: {
+          fontFamily: THEME.fonts.mono,
+          fontSize: 10,
+          letterSpacing: 0.8,
+          textTransform: 'uppercase',
+        },
+        tabBarActiveTintColor: THEME.colors.accent,
+        tabBarInactiveTintColor: THEME.colors.textDim,
+      }}
+    >
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Tab One',
-          tabBarIcon: ({ color }) => (
-            <SymbolView
-              name={{
-                ios: 'chevron.left.forwardslash.chevron.right',
-                android: 'code',
-                web: 'code',
-              }}
-              tintColor={color}
-              size={28}
+          title: 'Архив',
+          headerTitle: 'KEEPMEMORY // АРХИВ',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons
+              name="folder-open-outline"
+              size={size}
+              color={color == null ? undefined : String(color)}
             />
-          ),
-          headerRight: () => (
-            <Link href="/modal" asChild>
-              <Pressable style={{ marginRight: 15 }}>
-                {({ pressed }) => (
-                  <SymbolView
-                    name={{ ios: 'info.circle', android: 'info', web: 'info' }}
-                    size={25}
-                    tintColor={Colors[colorScheme].text}
-                    style={{ opacity: pressed ? 0.5 : 1 }}
-                  />
-                )}
-              </Pressable>
-            </Link>
           ),
         }}
       />
       <Tabs.Screen
-        name="two"
+        name="create"
         options={{
-          title: 'Tab Two',
-          tabBarIcon: ({ color }) => (
-            <SymbolView
-              name={{
-                ios: 'chevron.left.forwardslash.chevron.right',
-                android: 'code',
-                web: 'code',
-              }}
-              tintColor={color}
-              size={28}
+          title: 'Новый день',
+          headerTitle: 'REC // НОВЫЙ ДЕНЬ',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons
+              name="add-sharp"
+              size={size}
+              color={color == null ? undefined : String(color)}
+            />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="profile"
+        options={{
+          title: 'Профиль',
+          headerTitle: 'ID // ПРОФИЛЬ',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons
+              name="person-outline"
+              size={size}
+              color={color == null ? undefined : String(color)}
             />
           ),
         }}

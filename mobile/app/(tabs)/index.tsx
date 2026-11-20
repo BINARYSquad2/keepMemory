@@ -1,14 +1,15 @@
-import { StyleSheet } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
+import { THEME } from '../../constants/theme';
+import { TechBadge } from '../../components/ui/TechPrimitives';
 
-import EditScreenInfo from '@/components/EditScreenInfo';
-import { Text, View } from '@/components/Themed';
-
-export default function TabOneScreen() {
+export default function ArchiveStubScreen() {
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Tab One</Text>
-      <View style={styles.separator} lightColor="#eee" darkColor="rgba(255,255,255,0.1)" />
-      <EditScreenInfo path="app/(tabs)/index.tsx" />
+      <TechBadge label="ARCHIVE // READY FOR MVP" active />
+      <Text style={styles.title}>Лента папок дня</Text>
+      <Text style={styles.subtitle}>
+        На следующем шаге подключим сюда список папок из memoryStore и переход к визуализации на Skia.
+      </Text>
     </View>
   );
 }
@@ -16,16 +17,19 @@ export default function TabOneScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    alignItems: 'center',
+    backgroundColor: THEME.colors.bg,
+    padding: THEME.spacing.lg,
     justifyContent: 'center',
+    gap: 12,
   },
   title: {
-    fontSize: 20,
-    fontWeight: 'bold',
+    color: THEME.colors.text,
+    fontSize: 24,
+    fontWeight: '700',
   },
-  separator: {
-    marginVertical: 30,
-    height: 1,
-    width: '80%',
+  subtitle: {
+    color: THEME.colors.textMuted,
+    fontSize: 14,
+    lineHeight: 20,
   },
 });

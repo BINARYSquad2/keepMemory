@@ -95,7 +95,7 @@ export default function ProfileScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: THEME.colors.bg },
-  content: { padding: THEME.spacing.lg, gap: 20, paddingBottom: 40 },
+  content: { padding: THEME.spacing.lg, gap: 20, paddingBottom: 115 },
   identityRow: {
     flexDirection: 'row',
     alignItems: 'center',

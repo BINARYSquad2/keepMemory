@@ -1,20 +1,25 @@
 {
   "id": "day_001",
-  "date": "2026-11-19",
+  "date": "2026-11-20",
   "folderTitle": "Тёплый вечер после дождя",
   "text": "Текст записи о дне...",
-  "photoUrl": "https://example.com/photo.jpg",
+  "photoUri": "file:///example/photo.jpg",
   "track": {
-    "title": "Song Name",
-    "artist": "Artist",
+    "id": 123,
+    "title": "Sample Track",
+    "artist": "Sample Artist",
     "previewUrl": "https://example.com/preview.mp3",
-    "genre": "indie"
+    "genre": "Jazz",
+    "artworkUrl": "https://example.com/artwork.jpg",
+    "trackUrl": "https://music.apple.com/",
+    "energy": 0.35
   },
   "style": {
-    "palette": ["#1E293B", "#F59E0B", "#E2E8F0"],
-    "grainIntensity": 0.35,
+    "palette": ["#181B24", "#E89B4B", "#F2EDE4"],
+    "grainIntensity": 0.45,
     "artStyle": "analog_film",
-    "motionSpeed": 0.6,
+    "motionSpeed": 0.5,
     "typographyVariant": "serif_editorial"
-  }
+  },
+  "createdAt": "2026-11-20T16:30:00Z"
 }

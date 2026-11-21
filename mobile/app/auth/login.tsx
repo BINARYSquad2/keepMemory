@@ -2,28 +2,25 @@ import React, { useState } from 'react';
 import {
   View,
   Text,
+  TextInput,
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
   TouchableOpacity,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { THEME } from '../../constants/theme';
 import { getErrorMessage, login } from '../../services/api';
-import {
-  TechBadge,
-  TechButton,
-  TechCard,
-  TechInput,
-} from '../../components/ui/TechPrimitives';
 
 export default function LoginScreen() {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -37,9 +34,13 @@ export default function LoginScreen() {
 
   const handleLogin = async () => {
     if (loading) return;
+    if (!email.trim() || !password) {
+      setError('Введите email и пароль.');
+      return;
+    }
+
     setError(null);
     setLoading(true);
-
     try {
       await login({ email: email.trim(), password });
       router.replace('/(tabs)');
@@ -53,15 +54,11 @@ export default function LoginScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.topBar}>
-        <TouchableOpacity
-          onPress={handleBack}
-          style={styles.backBtn}
-          activeOpacity={0.7}
-        >
+        <TouchableOpacity onPress={handleBack} style={styles.backBtn} activeOpacity={0.7}>
           <Ionicons name="arrow-back" size={18} color={THEME.colors.text} />
-          <Text style={styles.backText}>НАЗАД</Text>
+          <Text style={styles.backText}>Назад</Text>
         </TouchableOpacity>
-        <Text style={styles.topCode}>AUTH // 01</Text>
+        <Text style={styles.brandMini}>KeepMemory</Text>
       </View>
 
       <KeyboardAvoidingView
@@ -71,52 +68,85 @@ export default function LoginScreen() {
         <ScrollView
           contentContainerStyle={styles.container}
           keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
         >
           <View style={styles.header}>
-            <TechBadge label="SYS // KEEPMEMORY_OS v0.1" active />
-            <Text style={styles.title}>ВХОД В СИСТЕМУ</Text>
+            <Text style={styles.eyebrow}>ЛИЧНЫЙ АРТ-ДНЕВНИК</Text>
+            <Text style={styles.title}>С возвращением</Text>
             <Text style={styles.subtitle}>
-              Личный архив атмосферы дня. Авторизуйся, чтобы синхронизировать папки.
+              Войди, чтобы открыть свой архив дней и синхронизировать записи между устройствами.
             </Text>
           </View>
 
-          <TechCard headerTag="AUTH_MODULE // LOGIN">
-            <TechInput
-              code="01"
-              label="Email"
-              placeholder="name@domain.com"
-              keyboardType="email-address"
-              autoCapitalize="none"
-              value={email}
-              onChangeText={setEmail}
-            />
+          <View style={styles.formCard}>
+            <View style={styles.field}>
+              <Text style={styles.fieldLabel}>01 · Email</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="name@domain.com"
+                placeholderTextColor={THEME.colors.textDim}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                value={email}
+                onChangeText={(v) => {
+                  setEmail(v);
+                  setError(null);
+                }}
+              />
+            </View>
 
-            <TechInput
-              code="02"
-              label="Пароль"
-              placeholder="••••••••"
-              secureTextEntry
-              showPasswordToggle
-              value={password}
-              onChangeText={setPassword}
-            />
+            <View style={styles.field}>
+              <Text style={styles.fieldLabel}>02 · Пароль</Text>
+              <View style={styles.passwordWrap}>
+                <TextInput
+                  style={styles.passwordInput}
+                  placeholder="••••••••"
+                  placeholderTextColor={THEME.colors.textDim}
+                  secureTextEntry={!showPassword}
+                  value={password}
+                  onChangeText={(v) => {
+                    setPassword(v);
+                    setError(null);
+                  }}
+                />
+                <TouchableOpacity
+                  onPress={() => setShowPassword((prev) => !prev)}
+                  style={styles.eyeBtn}
+                >
+                  <Ionicons
+                    name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                    size={18}
+                    color={THEME.colors.textMuted}
+                  />
+                </TouchableOpacity>
+              </View>
+            </View>
 
-            <TechButton
-              title={loading ? 'ВХОД...' : 'Войти в архив →'}
+            {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
+            <TouchableOpacity
+              style={[styles.primaryBtn, loading && styles.btnDim]}
               onPress={handleLogin}
               disabled={loading}
-              style={styles.submitBtn}
-            />
-            {error ? <Text style={styles.errorText}>{error}</Text> : null}
-          </TechCard>
-
-          <View style={styles.footer}>
-            <TechButton
-              title="Нет аккаунта? Регистрация"
-              variant="secondary"
-              onPress={() => router.replace('/auth/register')}
-            />
+              activeOpacity={0.85}
+            >
+              {loading ? (
+                <ActivityIndicator color={THEME.colors.accentText} />
+              ) : (
+                <Text style={styles.primaryBtnText}>ВОЙТИ В ДНЕВНИК →</Text>
+              )}
+            </TouchableOpacity>
           </View>
+
+          <TouchableOpacity
+            style={styles.switchBtn}
+            onPress={() => router.replace('/auth/register')}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.switchText}>
+              Нет аккаунта? <Text style={styles.switchHighlight}>Создать дневник</Text>
+            </Text>
+          </TouchableOpacity>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -130,7 +160,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: THEME.spacing.lg,
+    paddingHorizontal: THEME.spacing.md,
     paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: THEME.colors.border,
@@ -143,41 +173,100 @@ const styles = StyleSheet.create({
     paddingRight: 12,
   },
   backText: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 12,
-    letterSpacing: 1.2,
+    fontFamily: THEME.fonts.serif,
+    fontSize: 16,
     color: THEME.colors.text,
   },
-  topCode: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 11,
-    color: THEME.colors.textDim,
-    letterSpacing: 1,
+  brandMini: {
+    fontFamily: THEME.fonts.serif,
+    fontSize: 16,
+    color: THEME.colors.textMuted,
   },
   container: {
     flexGrow: 1,
     padding: THEME.spacing.lg,
     justifyContent: 'center',
-    gap: 24,
+    gap: 22,
   },
-  header: { gap: 10 },
+  header: { gap: 8 },
+  eyebrow: {
+    fontFamily: THEME.fonts.mono,
+    fontSize: 10,
+    letterSpacing: 1.5,
+    color: THEME.colors.accent,
+  },
   title: {
+    fontFamily: THEME.fonts.serif,
     color: THEME.colors.text,
-    fontSize: 28,
-    fontWeight: '800',
-    letterSpacing: 1,
+    fontSize: 30,
   },
   subtitle: {
     color: THEME.colors.textMuted,
     fontSize: 14,
     lineHeight: 20,
   },
-  submitBtn: { marginTop: 8 },
+  formCard: {
+    backgroundColor: THEME.colors.surface,
+    borderWidth: 1,
+    borderColor: THEME.colors.border,
+    borderRadius: THEME.radius.md,
+    padding: 16,
+    gap: 14,
+  },
+  field: { gap: 6 },
+  fieldLabel: {
+    fontFamily: THEME.fonts.mono,
+    fontSize: 11,
+    color: THEME.colors.accent,
+    letterSpacing: 0.6,
+  },
+  input: {
+    backgroundColor: THEME.colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: THEME.colors.border,
+    borderRadius: THEME.radius.sm,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    color: THEME.colors.text,
+    fontSize: 14,
+  },
+  passwordWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: THEME.colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: THEME.colors.border,
+    borderRadius: THEME.radius.sm,
+    paddingLeft: 14,
+  },
+  passwordInput: {
+    flex: 1,
+    paddingVertical: 13,
+    color: THEME.colors.text,
+    fontSize: 14,
+  },
+  eyeBtn: { paddingHorizontal: 12, paddingVertical: 10 },
   errorText: {
     color: THEME.colors.danger,
     fontSize: 13,
     lineHeight: 19,
-    marginTop: 12,
   },
-  footer: { gap: 10 },
+  primaryBtn: {
+    backgroundColor: THEME.colors.accent,
+    paddingVertical: 16,
+    borderRadius: THEME.radius.pill,
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  btnDim: { opacity: 0.55 },
+  primaryBtnText: {
+    fontFamily: THEME.fonts.mono,
+    color: THEME.colors.accentText,
+    fontWeight: '800',
+    fontSize: 12,
+    letterSpacing: 1,
+  },
+  switchBtn: { alignItems: 'center', paddingVertical: 8 },
+  switchText: { color: THEME.colors.textMuted, fontSize: 13 },
+  switchHighlight: { color: THEME.colors.accent, fontWeight: '600' },
 });

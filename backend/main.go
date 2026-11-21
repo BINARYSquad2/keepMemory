@@ -2,6 +2,8 @@ package main
 
 import (
 	"log"
+	"os"
+	"path/filepath"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
@@ -31,8 +33,15 @@ func run() error {
 }
 
 func newApp(db *pgxpool.Pool) *fiber.App {
-	app := fiber.New()
+	app := fiber.New(fiber.Config{
+		BodyLimit: 20 * 1024 * 1024,
+	})
 	api := &apiServer{db: db}
+
+	if err := os.MkdirAll(filepath.Join("uploads"), 0755); err != nil {
+		log.Printf("Не удалось создать папку uploads: %v", err)
+	}
+	app.Static("/uploads", "./uploads")
 
 	// Разрешает мобильному приложению обращаться к API во время разработки.
 	app.Use(cors.New(cors.Config{

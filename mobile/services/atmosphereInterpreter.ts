@@ -1,15 +1,16 @@
-import { MemoryDay } from '../types/memory';
+import { getMemoryPhotos, MemoryDay, MoodCategory } from '../types/memory';
 import { ART_STYLE_META } from '../constants/artStyles';
 
 export interface DayAtmosphereReading {
-  moodBadge: string;       // Например: "ТЁПЛЫЙ УЮТ" / "НОЧНОЙ ФОКУС" / "ДОЖДЛИВОЕ СОЗЕРЦАНИЕ"
-  cardCaption: string;     // Уникальная 1-строчная поэтичная подпись для самой открытки
-  curatorSummary: string;  // Уникальное объяснение (2 предложения) в блоке "Почему день выглядит так"
+  moodCategory: MoodCategory;
+  moodBadge: string;      // Естественный тег настроения: «Тёплый уют», «Ночной фокус»
+  cardCaption: string;    // Короткая живая подпись на самой открытке
+  curatorSummary: string; // Цельное объяснение оформления этого конкретного дня
   drivers: {
-    text: string;          // Что система считала из текста
-    palette: string;       // Что задаёт реальная палитра (температура / контраст)
-    music: string;         // Как именно эта песня управляет ритмом
-    album: string;         // Роль количества кадров и приёма
+    text: string;
+    palette: string;
+    music: string;
+    album: string;
   };
 }
 
@@ -51,7 +52,7 @@ function rgbToHsl(r: number, g: number, b: number): [number, number, number] {
 }
 
 function analyzePalette(palette: [string, string, string]): PaletteMetrics {
-  const [bgHex, accentHex, lightHex] = palette;
+  const [bgHex = '#060609', accentHex = '#D8FF4B', lightHex = '#F4EFE6'] = palette ?? [];
   const [ar, ag, ab] = hexToRgb(accentHex);
   const [hue, sat] = rgbToHsl(ar, ag, ab);
   const bgL = rgbToHsl(...hexToRgb(bgHex))[2];
@@ -72,7 +73,7 @@ function analyzePalette(palette: [string, string, string]): PaletteMetrics {
         : 'золотисто-охристая согревающая палитра';
   } else if (hue >= 60 && hue <= 155 && sat > 0.55) {
     temperature = 'vivid';
-    tempLabel = 'контрастная кислотно-цифровая палитра';
+    tempLabel = 'контрастная яркая палитра с живым акцентом';
   } else {
     temperature = 'cool';
     tempLabel =
@@ -93,6 +94,7 @@ function analyzePalette(palette: [string, string, string]): PaletteMetrics {
 
 interface MoodSignal {
   id: string;
+  category: MoodCategory;
   badge: string;
   captionHint: string;
   textCue: string;
@@ -102,76 +104,77 @@ interface MoodSignal {
 const MOOD_SIGNALS: MoodSignal[] = [
   {
     id: 'cozy',
-    badge: 'ТЁПЛЫЙ УЮТ',
+    category: 'warm',
+    badge: 'Тёплый уют',
     captionHint: 'Камерный свет и мягкое зерно удерживают тепло этого дня.',
     textCue: 'уютные детали, тепло и неспешная близость',
     patterns: [/какао|кофе|чай|плед|уют|дом|тепл|тёпл|камин|ламп|разговор|обнят|сладк|выпеч/i],
   },
   {
     id: 'rain_autumn',
-    badge: 'ОСЕННЯЯ МЕЛАНХОЛИЯ',
+    category: 'sad',
+    badge: 'Осенняя меланхолия',
     captionHint: 'Приглушённый свет и воздух в кадре сохраняют тихую глубину погоды.',
     textCue: 'осенние оттенки, дождь или прохладный воздух',
     patterns: [/дожд|ливн|осен|листь|лужи|пасмур|туман|ветер|холод|мокр|зонт|серы/i],
   },
   {
     id: 'night_focus',
-    badge: 'НОЧНОЙ ФОКУС',
+    category: 'energetic',
+    badge: 'Ночной фокус',
     captionHint: 'Собранная геометрия и ночной контраст фиксируют напряжение момента.',
     textCue: 'ночное время, концентрация, код или срочные задачи',
     patterns: [/ноч|полноч|дедлайн|сдач|проект|офис|код|учеб|учёб|экзам|срочн|работ|экран|поздн/i],
   },
   {
     id: 'drive_energy',
-    badge: 'ВЫСОКИЙ ДРАЙВ',
+    category: 'energetic',
+    badge: 'Высокий драйв',
     captionHint: 'Ускоренный пульс и диагонали передают живой ритм движения.',
     textCue: 'движение, азарт, тренировка или насыщенный темп событий',
     patterns: [/драйв|бег|спорт|тренир|концерт|танц|побед|успел|огонь|быстр|энерг|зал|матч|игр/i],
   },
   {
     id: 'walk_city',
-    badge: 'ДЫХАНИЕ ПРОГУЛКИ',
+    category: 'warm',
+    badge: 'Дыхание прогулки',
     captionHint: 'Живые переходы света передают ощущение дороги и открытого пространства.',
     textCue: 'прогулка, улицы, парк или смена локаций',
     patterns: [/гуля|парк|улиц|город|дорог|поездк|набереж|пруд|лес|горы|море|метро|велосипед|пешком/i],
   },
   {
     id: 'morning_clarity',
-    badge: 'УТРЕННЯЯ ЯСНОСТЬ',
+    category: 'happy',
+    badge: 'Утренняя ясность',
     captionHint: 'Чистая сетка и свежий свет подчёркивают лёгкое начало дня.',
     textCue: 'утренний свет, свежесть и ясное настроение',
     patterns: [/утр|рассвет|солнц|просну|завтрак|свеж|ясн|небо|весна|чист/i],
   },
   {
     id: 'sunset_dream',
-    badge: 'ЗАКАТНОЕ СОЗЕРЦАНИЕ',
+    category: 'calm',
+    badge: 'Закатное созерцание',
     captionHint: 'Плавающие ореолы света растягивают тихий момент на границе вечера.',
     textCue: 'вечерний свет, закат и спокойное созерцание',
     patterns: [/закат|вечер|сумерк|небо|звезд|звёзд|луна|тих|спокой|мечт|музык|окн/i],
   },
   {
     id: 'people_joy',
-    badge: 'ЖИВОЕ ПРИСУТСТВИЕ',
+    category: 'happy',
+    badge: 'Живое присутствие',
     captionHint: 'Тёплый акцент и живая фактура сохраняют эмоции встречи.',
     textCue: 'люди рядом, смех и тёплое общение',
     patterns: [/друз|подруг|девушк|парен|семь|мама|папа|брат|сестр|смея|смех|встрет|праздн|радост|счаст/i],
   },
   {
     id: 'quiet_tired',
-    badge: 'ТИХАЯ ПАУЗА',
+    category: 'sad',
+    badge: 'Тихая пауза',
     captionHint: 'Рассеянная дымка и замедленный ритм оставляют пространство для выдоха.',
     textCue: 'усталость, тишина или желание замедлиться',
     patterns: [/устал|груст|тяжел|тяжёл|один|тишин|молча|выдох|отдох|сон|спать|тоск/i],
   },
 ];
-
-function extractMemoryPhotosCount(memory: MemoryDay): number {
-  const extended = memory as MemoryDay & { photoUris?: string[] };
-  if (Array.isArray(extended.photoUris) && extended.photoUris.length > 0) {
-    return extended.photoUris.filter(Boolean).length;
-  }
-  return memory.photoUri ? 1 : 0;
-}
 
 function stableIndex(seed: string, mod: number): number {
   let h = 0;
@@ -179,6 +182,16 @@ function stableIndex(seed: string, mod: number): number {
     h = (h * 33 + seed.charCodeAt(i)) >>> 0;
   }
   return h % mod;
+}
+
+function normalizeSentenceCase(value: string): string {
+  const clean = value.trim();
+  if (!clean) return '';
+  if (clean === clean.toUpperCase()) {
+    const lower = clean.toLowerCase();
+    return lower.charAt(0).toUpperCase() + lower.slice(1);
+  }
+  return clean.charAt(0).toUpperCase() + clean.slice(1);
 }
 
 export function analyzeDayAtmosphere(memory: MemoryDay): DayAtmosphereReading {
@@ -192,41 +205,55 @@ export function analyzeDayAtmosphere(memory: MemoryDay): DayAtmosphereReading {
   const energyPct = Math.round(energy * 100);
   const speed = Number(memory.style.motionSpeed || 1);
   const grainPct = Math.round((memory.style.grainIntensity ?? 0.35) * 100);
-  const photoCount = extractMemoryPhotosCount(memory);
+  const photoCount = Math.max(1, getMemoryPhotos(memory).length);
   const modeMeta = ART_STYLE_META[memory.style.artStyle] ?? ART_STYLE_META.analog_film;
 
-  // Подбираем главный маркер настроения
   const primarySignal = matched[0];
   const secondarySignal = matched[1];
 
-  const fallbackByEnergy: { badge: string; textCue: string; captionHint: string } =
+  const fallbackByEnergy: {
+    category: MoodCategory;
+    badge: string;
+    textCue: string;
+    captionHint: string;
+  } =
     energy >= 0.72
       ? {
-          badge: 'ИМПУЛЬС ДНЯ',
+          category: 'energetic',
+          badge: 'Импульс дня',
           textCue: 'энергичная динамика записи и плотный ритм событий',
           captionHint: 'Сфокусированный свет и ускоренный ритм удерживают импульс этого дня.',
         }
       : paletteMetrics.temperature === 'warm'
         ? {
-            badge: 'ТЁПЛОЕ ВОСПОМИНАНИЕ',
+            category: 'warm',
+            badge: 'Тёплое воспоминание',
             textCue: 'живые бытовые штрихи и мягкая интонация рассказа',
             captionHint: 'Тёплый свет кадра и живая фактура бережно хранят ощущение дня.',
           }
         : paletteMetrics.temperature === 'cool'
           ? {
-              badge: 'ВЕЧЕРНЯЯ ГЛУБИНА',
+              category: 'calm',
+              badge: 'Вечерняя глубина',
               textCue: 'сдержанная, вдумчивая интонация дневниковой записи',
               captionHint: 'Прохладные оттенки и спокойное движение слоёв подчёркивают глубину дня.',
             }
           : {
-              badge: 'ЛИЧНЫЙ СЛЕПОК',
+              category: 'calm',
+              badge: 'Личный слепок',
               textCue: 'наблюдения дня и спокойный авторский тон',
               captionHint: 'Выверенный баланс света, шрифта и ритма фиксирует настроение момента.',
             };
 
-  const moodBadge = primarySignal?.badge ?? fallbackByEnergy.badge;
+  const serverMood = memory.mood ?? memory.style.mood;
+  const moodCategory: MoodCategory =
+    serverMood ?? primarySignal?.category ?? fallbackByEnergy.category;
 
-  // Описание влияния трека
+  const serverMoodLabel = memory.style.moodLabel?.trim();
+  const moodBadge = serverMoodLabel
+    ? normalizeSentenceCase(serverMoodLabel)
+    : primarySignal?.badge ?? fallbackByEnergy.badge;
+
   const musicTempoWord =
     energy >= 0.72
       ? 'высокий драйв'
@@ -234,9 +261,8 @@ export function analyzeDayAtmosphere(memory: MemoryDay): DayAtmosphereReading {
         ? 'уверенный живой ритм'
         : 'спокойный камерный темп';
 
-  const musicDriver = `«${memory.track.title}» (${memory.track.artist}, ${memory.track.genre}) задаёт ${musicTempoWord} (${energyPct}% энергии) → скорость анимации и пульсации ${speed.toFixed(1)}x.`;
+  const musicDriver = `«${memory.track.title}» (${memory.track.artist}, ${memory.track.genre}) задаёт ${musicTempoWord} (${energyPct}% энергии), поэтому слои и переходы движутся со скоростью ${speed.toFixed(1)}x.`;
 
-  // Описание влияния текста
   const wordCount = text ? text.split(/\s+/).length : 0;
   const textDepth =
     wordCount >= 28 ? 'подробная история' : wordCount >= 12 ? 'ёмкая заметка' : 'лаконичный штрих';
@@ -244,28 +270,27 @@ export function analyzeDayAtmosphere(memory: MemoryDay): DayAtmosphereReading {
     ? `${primarySignal.textCue}, а также ${secondarySignal.textCue}`
     : primarySignal?.textCue ?? fallbackByEnergy.textCue;
 
-  const textDriver = `В тексте (${textDepth}) считаны ${combinedCues} — это определило режим «${modeMeta.shortTitle}» и подачу заголовка «${memory.folderTitle}».`;
+  const personalizationNote = memory.style.personalizationNote?.trim();
+  const baseTextDriver = `В тексте (${textDepth}) проявились ${combinedCues} — это определило режим «${modeMeta.shortTitle}» и подачу заголовка «${memory.folderTitle}».`;
+  const textDriver = personalizationNote
+    ? `${baseTextDriver} ${personalizationNote}`
+    : baseTextDriver;
 
-  // Описание палитры и зерна
-  const paletteDriver = `Из кадра извлечена ${paletteMetrics.tempLabel} и ${paletteMetrics.contrastLabel}; плёночная фактура выставлена на ${grainPct}%.`;
+  const paletteDriver = `Из фотографии извлечена ${paletteMetrics.tempLabel} и ${paletteMetrics.contrastLabel}; зернистость настроена на ${grainPct}%.`;
 
-  // Описание альбома и композиции
   const albumDriver =
     photoCount > 1
-      ? `Альбом из ${photoCount} кадров плавно сменяется в такт треку, объединяя день в живую серию (${modeMeta.reference}).`
-      : `Одиночный кадр работает как выставочный постер с приёмом «${modeMeta.reference}».`;
+      ? `Альбом из ${photoCount} кадров плавно сменяется в такт песне, собирая день в цельную серию (${modeMeta.reference}).`
+      : `Одиночный кадр работает как выставочная открытка с приёмом «${modeMeta.reference}».`;
 
-  // Уникальная 1-строчная подпись на карточку (если бэкенд не прислал кастомную от LLM)
   const captionVariants = [
     primarySignal?.captionHint ?? fallbackByEnergy.captionHint,
     `${modeMeta.shortTitle} и ${paletteMetrics.tempLabel} под ритм «${memory.track.title}».`,
-    `${moodBadge.charAt(0) + moodBadge.slice(1).toLowerCase()}: ${paletteMetrics.contrastLabel} и ${musicTempoWord} трека.`,
+    `${moodBadge}: ${paletteMetrics.contrastLabel} и ${musicTempoWord} выбранной песни.`,
   ];
   const generatedCaption =
     captionVariants[stableIndex(`${memory.id}:${memory.track.title}`, captionVariants.length)];
 
-  // Если бэкенд-LLM (когда Акылбек прикрутит Gemini) пришлёт живую уникальную заметку, используем её,
-  // а шаблонную или пустую заменяем нашим контекстным интерпретатором.
   const backendNote = memory.style.atmosphereNote?.trim() ?? '';
   const isGenericBackendNote =
     !backendNote ||
@@ -274,12 +299,18 @@ export function analyzeDayAtmosphere(memory: MemoryDay): DayAtmosphereReading {
 
   const cardCaption = isGenericBackendNote ? generatedCaption : backendNote;
 
-  const curatorSummary =
-    `Этот день собран как «${moodBadge.toLowerCase()}»: ${paletteMetrics.tempLabel} соединяется с приёмом «${modeMeta.shortTitle}». ` +
-    `Трек «${memory.track.title}» (${energyPct}%) задаёт ${musicTempoWord} (${speed.toFixed(1)}x)` +
-    (photoCount > 1 ? ` и ритм перелистывания альбома из ${photoCount} кадров.` : ` и дыхание световых слоёв в кадре.`);
+  const serverSummary = memory.style.curatorSummary?.trim();
+  const fallbackSummary =
+    `Этот день собран в настроении «${moodBadge.toLowerCase()}»: ${paletteMetrics.tempLabel} соединяется с приёмом «${modeMeta.shortTitle}». ` +
+    `Песня «${memory.track.title}» (${energyPct}%) задаёт ${musicTempoWord} (${speed.toFixed(1)}x)` +
+    (photoCount > 1
+      ? ` и темп перелистывания альбома из ${photoCount} кадров.`
+      : ` и дыхание световых слоёв в кадре.`);
+
+  const curatorSummary = serverSummary || fallbackSummary;
 
   return {
+    moodCategory,
     moodBadge,
     cardCaption,
     curatorSummary,

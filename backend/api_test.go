@@ -72,6 +72,8 @@ func TestAuthenticatedDayWorkflow(t *testing.T) {
 	t.Cleanup(db.Close)
 
 	t.Setenv("JWT_SECRET", "test-secret")
+	t.Setenv("GEMINI_API_KEY", "") // тесты не должны зависеть от внешнего ИИ API
+
 	email := "test-" + uuid.NewString() + "@example.com"
 	secondEmail := "test-" + uuid.NewString() + "@example.com"
 	t.Cleanup(func() {
@@ -132,7 +134,7 @@ func TestAuthenticatedDayWorkflow(t *testing.T) {
 	updatedProfile := performJSONRequest(t, app, http.MethodPatch, "/api/profile", auth.Token, map[string]string{
 		"displayName": "Updated User",
 		"handle":      "@updated_user",
-		"bio":         "A new bio",
+		"bio":         "Люблю плёночную фотографию, прогулки после дождя и спокойный джаз по вечерам.",
 	})
 	if updatedProfile.Code != http.StatusOK {
 		t.Fatalf("update profile status = %d, want %d: %s", updatedProfile.Code, http.StatusOK, updatedProfile.Body)
@@ -151,26 +153,24 @@ func TestAuthenticatedDayWorkflow(t *testing.T) {
 		t.Fatalf("persisted profile = %#v, want updated profile", persistedUser.User)
 	}
 
-	createdDays := make([]Day, 0, 7)
-	for index := 1; index <= 7; index++ {
-		create := performJSONRequest(t, app, http.MethodPost, "/api/days", auth.Token, map[string]interface{}{
-			"text":     fmt.Sprintf("A quiet walk after the rain, memory %d", index),
-			"photoUri": "file:///test/photo.jpg",
-			"track": TrackInfo{
-				ID:         123,
-				Title:      "Test Track",
-				Artist:     "Test Artist",
-				PreviewURL: "https://example.com/preview.mp3",
-				Genre:      "Jazz",
-				ArtworkURL: "https://example.com/artwork.jpg",
-				TrackURL:   "https://example.com/track",
-				Energy:     0.35,
-			},
-		})
-		if create.Code != http.StatusCreated {
-			t.Fatalf("create day %d status = %d, want %d: %s",
-				index, create.Code, http.StatusCreated, create.Body)
-		}
+	create := performJSONRequest(t, app, http.MethodPost, "/api/days", auth.Token, map[string]interface{}{
+		"text":      "Тихая прогулка под вечерним дождём с тёплым кофе",
+		"photoUri":  "https://example.com/test-1.jpg",
+		"photoUris": []string{"https://example.com/test-1.jpg", "https://example.com/test-2.jpg"},
+		"track": TrackInfo{
+			ID:         123,
+			Title:      "Test Track",
+			Artist:     "Test Artist",
+			PreviewURL: "https://example.com/preview.mp3",
+			Genre:      "Jazz",
+			ArtworkURL: "https://example.com/artwork.jpg",
+			TrackURL:   "https://example.com/track",
+			Energy:     0.35,
+		},
+	})
+	if create.Code != http.StatusCreated {
+		t.Fatalf("create day status = %d, want %d: %s", create.Code, http.StatusCreated, create.Body)
+	}
 
 		var result struct {
 			Day Day `json:"day"`
@@ -182,6 +182,12 @@ func TestAuthenticatedDayWorkflow(t *testing.T) {
 			t.Fatalf("created day %d must include an ID and generated folder title", index)
 		}
 		createdDays = append(createdDays, result.Day)
+	}
+	if len(created.Day.PhotoURIs) != 2 {
+		t.Fatalf("photoUris count = %d, want 2", len(created.Day.PhotoURIs))
+	}
+	if created.Day.Mood == "" {
+		t.Fatal("created day must include a classified mood")
 	}
 
 	list := performJSONRequest(t, app, http.MethodGet, "/api/days", auth.Token, nil)
@@ -208,7 +214,21 @@ func TestAuthenticatedDayWorkflow(t *testing.T) {
 		}
 	}
 
-	detail := performJSONRequest(t, app, http.MethodGet, "/api/days/"+createdDays[0].ID, auth.Token, nil)
+	filtered := performJSONRequest(t, app, http.MethodGet, "/api/days?mood="+created.Day.Mood+"&q=кофе", auth.Token, nil)
+	if filtered.Code != http.StatusOK {
+		t.Fatalf("filtered days status = %d, want %d: %s", filtered.Code, http.StatusOK, filtered.Body)
+	}
+	var filteredResp struct {
+		Days []Day `json:"days"`
+	}
+	if err := json.Unmarshal(filtered.Body.Bytes(), &filteredResp); err != nil {
+		t.Fatalf("decode filtered days: %v", err)
+	}
+	if len(filteredResp.Days) != 1 {
+		t.Fatalf("filtered days count = %d, want 1", len(filteredResp.Days))
+	}
+
+	detail := performJSONRequest(t, app, http.MethodGet, "/api/days/"+created.Day.ID, auth.Token, nil)
 	if detail.Code != http.StatusOK {
 		t.Fatalf("get day status = %d, want %d: %s", detail.Code, http.StatusOK, detail.Body)
 	}

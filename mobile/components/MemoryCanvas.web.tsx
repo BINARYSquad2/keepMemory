@@ -32,6 +32,12 @@ const absoluteFillStyle = {
   left: 0,
 };
 
+function formatSentenceCase(value: string): string {
+  const clean = value.trim().toLowerCase();
+  if (!clean) return '';
+  return clean.charAt(0).toUpperCase() + clean.slice(1);
+}
+
 export function MemoryCanvas({
   memory,
   isPlaying = false,
@@ -44,6 +50,11 @@ export function MemoryCanvas({
 
   const photos = useMemo(() => getMemoryPhotos(memory), [memory]);
   const [internalIndex, setInternalIndex] = useState(0);
+
+  useEffect(() => {
+    setInternalIndex(0);
+  }, [memory.id]);
+
   const photoCount = photos.length;
   const currentIndex =
     photoCount > 0 ? (activePhotoIndex ?? internalIndex) % photoCount : 0;
@@ -117,7 +128,7 @@ export function MemoryCanvas({
     <View
       style={[
         styles.frame,
-        { width: cardWidth, backgroundColor: bgCol, borderColor: 'rgba(255,255,255,0.16)' },
+        { width: cardWidth, backgroundColor: bgCol, borderColor: 'rgba(255,255,255,0.14)' },
       ]}
     >
       <View style={styles.metaBar}>
@@ -128,12 +139,12 @@ export function MemoryCanvas({
               { backgroundColor: accentCol, opacity: isPlaying ? 1 : 0.65 },
             ]}
           />
-          <Text style={[styles.metaMono, { color: lightCol }]}>
-            {formatMemoryDate(memory.date).toUpperCase()}
+          <Text style={[styles.metaDate, { color: lightCol }]}>
+            {formatMemoryDate(memory.date)}
           </Text>
         </View>
-        <Text style={[styles.metaMono, { color: accentCol }]}>
-          {modeMeta.canvasLabel}
+        <Text style={[styles.metaStyle, { color: accentCol }]}>
+          {modeMeta.shortTitle}
         </Text>
       </View>
 
@@ -203,7 +214,7 @@ export function MemoryCanvas({
             </View>
             <View style={styles.frameTag}>
               <Text style={[styles.frameTagText, { color: lightCol }]}>
-                FRAME 0{currentIndex + 1}/0{photoCount}
+                {currentIndex + 1} / {photoCount}
               </Text>
             </View>
           </View>
@@ -223,12 +234,12 @@ export function MemoryCanvas({
         <View style={styles.moodRow}>
           <View style={[styles.moodPill, { borderColor: accentCol }]}>
             <Text style={[styles.moodPillText, { color: accentCol }]}>
-              {atmosphere.moodBadge}
+              {formatSentenceCase(atmosphere.moodBadge)}
             </Text>
           </View>
           {photoCount > 1 ? (
             <Text style={styles.albumHint}>
-              {isPlaying ? 'Смена в ритме трека' : 'Кликни кадр · альбом'}
+              {isPlaying ? 'Смена в ритме песни' : 'Нажмите на фото'}
             </Text>
           ) : null}
         </View>
@@ -280,11 +291,8 @@ const styles = StyleSheet.create({
   },
   metaLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   liveDot: { width: 6, height: 6, borderRadius: 99 },
-  metaMono: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 10,
-    letterSpacing: 1.1,
-  },
+  metaDate: { fontSize: 12, fontWeight: '500' },
+  metaStyle: { fontSize: 12, fontWeight: '600' },
   artwork: { overflow: 'hidden', alignSelf: 'center' },
   colorWash: absoluteFillStyle,
   aura: { position: 'absolute', width: '80%', aspectRatio: 1, borderRadius: 999 },
@@ -353,18 +361,12 @@ const styles = StyleSheet.create({
   },
   frameTag: {
     alignSelf: 'flex-start',
-    backgroundColor: 'rgba(6, 6, 9, 0.7)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.16)',
-    paddingHorizontal: 8,
+    backgroundColor: 'rgba(6, 6, 9, 0.68)',
+    paddingHorizontal: 9,
     paddingVertical: 3,
-    borderRadius: THEME.radius.xs,
+    borderRadius: THEME.radius.pill,
   },
-  frameTagText: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 9,
-    letterSpacing: 1,
-  },
+  frameTagText: { fontSize: 11, fontWeight: '600' },
   rhythmTrack: {
     position: 'absolute',
     bottom: 14,
@@ -383,43 +385,36 @@ const styles = StyleSheet.create({
   },
   moodPill: {
     borderWidth: 1,
-    borderRadius: THEME.radius.xs,
-    paddingHorizontal: 8,
+    borderRadius: THEME.radius.pill,
+    paddingHorizontal: 10,
     paddingVertical: 3,
-    backgroundColor: 'rgba(6, 6, 9, 0.35)',
+    backgroundColor: 'rgba(6, 6, 9, 0.3)',
   },
-  moodPillText: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 9,
-    fontWeight: '700',
-    letterSpacing: 1.1,
-  },
+  moodPillText: { fontSize: 11, fontWeight: '600' },
   albumHint: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 9,
-    color: 'rgba(244, 239, 230, 0.5)',
+    fontSize: 11,
+    color: 'rgba(244, 239, 230, 0.55)',
   },
   folderTitle: { fontSize: 22, lineHeight: 28 },
   serifTitle: { fontFamily: THEME.fonts.serif, fontWeight: '600', letterSpacing: 0.2 },
   monoTitle: {
     fontFamily: THEME.fonts.mono,
     fontWeight: '700',
-    fontSize: 17,
-    lineHeight: 24,
-    letterSpacing: 0.6,
-    textTransform: 'uppercase',
+    fontSize: 18,
+    lineHeight: 25,
+    letterSpacing: 0.3,
   },
-  atmosphereNote: { color: 'rgba(244, 239, 230, 0.72)', fontSize: 12, lineHeight: 18 },
+  atmosphereNote: { color: 'rgba(244, 239, 230, 0.74)', fontSize: 13, lineHeight: 19 },
   bottomRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 12,
-    paddingTop: 7,
+    paddingTop: 8,
     borderTopWidth: 1,
     borderTopColor: 'rgba(255,255,255,0.08)',
   },
-  trackLabel: { flex: 1, fontFamily: THEME.fonts.mono, fontSize: 11 },
+  trackLabel: { flex: 1, fontSize: 12, fontWeight: '500' },
   swatches: { flexDirection: 'row', gap: 5 },
   swatch: {
     width: 12,

@@ -71,22 +71,22 @@ export default function LoginScreen() {
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.header}>
-            <Text style={styles.eyebrow}>ЛИЧНЫЙ АРТ-ДНЕВНИК</Text>
             <Text style={styles.title}>С возвращением</Text>
             <Text style={styles.subtitle}>
-              Войди, чтобы открыть свой архив дней и синхронизировать записи между устройствами.
+              Войдите, чтобы открыть свой дневник и синхронизировать записи между устройствами.
             </Text>
           </View>
 
           <View style={styles.formCard}>
             <View style={styles.field}>
-              <Text style={styles.fieldLabel}>01 · Email</Text>
+              <Text style={styles.fieldLabel}>Email</Text>
               <TextInput
                 style={styles.input}
-                placeholder="name@domain.com"
+                placeholder="name@example.com"
                 placeholderTextColor={THEME.colors.textDim}
                 keyboardType="email-address"
                 autoCapitalize="none"
+                autoComplete="email"
                 value={email}
                 onChangeText={(v) => {
                   setEmail(v);
@@ -96,13 +96,14 @@ export default function LoginScreen() {
             </View>
 
             <View style={styles.field}>
-              <Text style={styles.fieldLabel}>02 · Пароль</Text>
+              <Text style={styles.fieldLabel}>Пароль</Text>
               <View style={styles.passwordWrap}>
                 <TextInput
                   style={styles.passwordInput}
-                  placeholder="••••••••"
+                  placeholder="Введите пароль"
                   placeholderTextColor={THEME.colors.textDim}
                   secureTextEntry={!showPassword}
+                  autoComplete="password"
                   value={password}
                   onChangeText={(v) => {
                     setPassword(v);
@@ -133,7 +134,7 @@ export default function LoginScreen() {
               {loading ? (
                 <ActivityIndicator color={THEME.colors.accentText} />
               ) : (
-                <Text style={styles.primaryBtnText}>ВОЙТИ В ДНЕВНИК →</Text>
+                <Text style={styles.primaryBtnText}>Войти</Text>
               )}
             </TouchableOpacity>
           </View>
@@ -173,9 +174,9 @@ const styles = StyleSheet.create({
     paddingRight: 12,
   },
   backText: {
-    fontFamily: THEME.fonts.serif,
-    fontSize: 16,
+    fontSize: 15,
     color: THEME.colors.text,
+    fontWeight: '500',
   },
   brandMini: {
     fontFamily: THEME.fonts.serif,
@@ -189,12 +190,6 @@ const styles = StyleSheet.create({
     gap: 22,
   },
   header: { gap: 8 },
-  eyebrow: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 10,
-    letterSpacing: 1.5,
-    color: THEME.colors.accent,
-  },
   title: {
     fontFamily: THEME.fonts.serif,
     color: THEME.colors.text,
@@ -210,15 +205,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: THEME.colors.border,
     borderRadius: THEME.radius.md,
-    padding: 16,
-    gap: 14,
+    padding: 18,
+    gap: 15,
   },
   field: { gap: 6 },
   fieldLabel: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 11,
-    color: THEME.colors.accent,
-    letterSpacing: 0.6,
+    fontSize: 13,
+    fontWeight: '600',
+    color: THEME.colors.text,
   },
   input: {
     backgroundColor: THEME.colors.surfaceElevated,
@@ -253,20 +247,18 @@ const styles = StyleSheet.create({
   },
   primaryBtn: {
     backgroundColor: THEME.colors.accent,
-    paddingVertical: 16,
+    paddingVertical: 15,
     borderRadius: THEME.radius.pill,
     alignItems: 'center',
     marginTop: 4,
   },
   btnDim: { opacity: 0.55 },
   primaryBtnText: {
-    fontFamily: THEME.fonts.mono,
     color: THEME.colors.accentText,
-    fontWeight: '800',
-    fontSize: 12,
-    letterSpacing: 1,
+    fontWeight: '700',
+    fontSize: 15,
   },
   switchBtn: { alignItems: 'center', paddingVertical: 8 },
-  switchText: { color: THEME.colors.textMuted, fontSize: 13 },
+  switchText: { color: THEME.colors.textMuted, fontSize: 14 },
   switchHighlight: { color: THEME.colors.accent, fontWeight: '600' },
 });

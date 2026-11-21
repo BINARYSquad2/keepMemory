@@ -30,6 +30,8 @@ func TestAuthenticatedDayWorkflow(t *testing.T) {
 	t.Cleanup(db.Close)
 
 	t.Setenv("JWT_SECRET", "test-secret")
+	t.Setenv("GEMINI_API_KEY", "") // тесты не должны зависеть от внешнего ИИ API
+
 	email := "test-" + uuid.NewString() + "@example.com"
 	secondEmail := "test-" + uuid.NewString() + "@example.com"
 	t.Cleanup(func() {
@@ -80,7 +82,7 @@ func TestAuthenticatedDayWorkflow(t *testing.T) {
 	updatedProfile := performJSONRequest(t, app, http.MethodPatch, "/api/profile", auth.Token, map[string]string{
 		"displayName": "Updated User",
 		"handle":      "@updated_user",
-		"bio":         "A new bio",
+		"bio":         "Люблю плёночную фотографию, прогулки после дождя и спокойный джаз по вечерам.",
 	})
 	if updatedProfile.Code != http.StatusOK {
 		t.Fatalf("update profile status = %d, want %d: %s", updatedProfile.Code, http.StatusOK, updatedProfile.Body)
@@ -100,8 +102,9 @@ func TestAuthenticatedDayWorkflow(t *testing.T) {
 	}
 
 	create := performJSONRequest(t, app, http.MethodPost, "/api/days", auth.Token, map[string]interface{}{
-		"text":     "A quiet walk after the rain",
-		"photoUri": "file:///test/photo.jpg",
+		"text":      "Тихая прогулка под вечерним дождём с тёплым кофе",
+		"photoUri":  "https://example.com/test-1.jpg",
+		"photoUris": []string{"https://example.com/test-1.jpg", "https://example.com/test-2.jpg"},
 		"track": TrackInfo{
 			ID:         123,
 			Title:      "Test Track",
@@ -126,6 +129,12 @@ func TestAuthenticatedDayWorkflow(t *testing.T) {
 	if created.Day.ID == "" || created.Day.FolderTitle == "" {
 		t.Fatal("created day must include an ID and generated folder title")
 	}
+	if len(created.Day.PhotoURIs) != 2 {
+		t.Fatalf("photoUris count = %d, want 2", len(created.Day.PhotoURIs))
+	}
+	if created.Day.Mood == "" {
+		t.Fatal("created day must include a classified mood")
+	}
 
 	list := performJSONRequest(t, app, http.MethodGet, "/api/days", auth.Token, nil)
 	if list.Code != http.StatusOK {
@@ -140,6 +149,20 @@ func TestAuthenticatedDayWorkflow(t *testing.T) {
 	}
 	if len(listed.Days) != 1 || listed.Days[0].ID != created.Day.ID {
 		t.Fatalf("listed days = %#v, want the created day", listed.Days)
+	}
+
+	filtered := performJSONRequest(t, app, http.MethodGet, "/api/days?mood="+created.Day.Mood+"&q=кофе", auth.Token, nil)
+	if filtered.Code != http.StatusOK {
+		t.Fatalf("filtered days status = %d, want %d: %s", filtered.Code, http.StatusOK, filtered.Body)
+	}
+	var filteredResp struct {
+		Days []Day `json:"days"`
+	}
+	if err := json.Unmarshal(filtered.Body.Bytes(), &filteredResp); err != nil {
+		t.Fatalf("decode filtered days: %v", err)
+	}
+	if len(filteredResp.Days) != 1 {
+		t.Fatalf("filtered days count = %d, want 1", len(filteredResp.Days))
 	}
 
 	detail := performJSONRequest(t, app, http.MethodGet, "/api/days/"+created.Day.ID, auth.Token, nil)

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
-import { Href, useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import {
   setAudioModeAsync,
   useAudioPlayer,
@@ -32,14 +32,14 @@ import { THEME } from '../../constants/theme';
 const MAX_PHOTOS = 6;
 
 const BUILD_STAGES = [
-  'Считываем интонацию и детали текста…',
-  'Извлекаем свет и палитру альбома…',
-  'Синхронизируем ритм кадров с треком…',
-  'Собираем папку дня в архив…',
+  'Читаем запись и контекст вашего профиля…',
+  'Подбираем свет и палитру альбома…',
+  'Связываем ритм кадров с выбранной песней…',
+  'Собираем страницу дня в дневник…',
 ];
 
 function describeEnergy(energy: number): string {
-  if (energy >= 0.72) return 'Высокий ритм';
+  if (energy >= 0.72) return 'Энергичный ритм';
   if (energy >= 0.45) return 'Живой темп';
   return 'Спокойный ритм';
 }
@@ -57,8 +57,8 @@ export default function CreateDayScreen() {
   const [loading, setLoading] = useState(false);
   const [stageIndex, setStageIndex] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [allowCloudAI, setAllowCloudAI] = useState(false);
 
-  // Превью-плеер прямо на экране выбора песни
   const previewPlayer = useAudioPlayer(null);
   const previewStatus = useAudioPlayerStatus(previewPlayer);
   const [previewingId, setPreviewingId] = useState<number | null>(null);
@@ -73,6 +73,24 @@ export default function CreateDayScreen() {
     setAudioModeAsync({ playsInSilentMode: true }).catch(() => {});
   }, []);
 
+  const stopPreview = useCallback(() => {
+    try {
+      previewPlayer.pause();
+    } catch {
+      // плеер ещё не инициализирован
+    }
+    setPreviewingId(null);
+  }, [previewPlayer]);
+
+  // Останавливаем превью песни, если пользователь переключился на другой экран
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        stopPreview();
+      };
+    }, [stopPreview])
+  );
+
   useEffect(() => {
     if (!loading) {
       setStageIndex(0);
@@ -80,7 +98,7 @@ export default function CreateDayScreen() {
     }
     const timer = setInterval(() => {
       setStageIndex((prev) => (prev + 1) % BUILD_STAGES.length);
-    }, 1050);
+    }, 1100);
     return () => clearInterval(timer);
   }, [loading]);
 
@@ -117,15 +135,6 @@ export default function CreateDayScreen() {
     };
   }, [songQuery]);
 
-  const stopPreview = () => {
-    try {
-      previewPlayer.pause();
-    } catch {
-      // ignore if player not loaded
-    }
-    setPreviewingId(null);
-  };
-
   const toggleTrackPreview = (track: TrackInfo) => {
     if (!track.previewUrl) return;
 
@@ -151,7 +160,7 @@ export default function CreateDayScreen() {
     try {
       const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!permission.granted) {
-        Alert.alert('Нужен доступ', 'Разреши доступ к галерее, чтобы собрать альбом дня.');
+        Alert.alert('Нужен доступ', 'Разрешите доступ к галерее, чтобы выбрать фото дня.');
         return;
       }
 
@@ -206,7 +215,7 @@ export default function CreateDayScreen() {
     if (loading) return;
     const cover = photos[0];
     if (!step1Done || !cover || !selectedTrack) {
-      setError('Заполните все 3 шага: текст (от 10 символов), минимум 1 фото и трек из поиска.');
+      setError('Заполните все три блока: текст (от 10 символов), минимум одно фото и песню.');
       return;
     }
 
@@ -222,6 +231,7 @@ export default function CreateDayScreen() {
         photoMimeType: cover.mimeType,
         photos,
         track: selectedTrack,
+        allowCloudAI,
       });
 
       setText('');
@@ -229,6 +239,7 @@ export default function CreateDayScreen() {
       setSongQuery('');
       setTracks([]);
       setSelectedTrack(null);
+      setAllowCloudAI(false);
 
       router.push(`/memory/${created.id}`);
     } catch (requestError) {
@@ -251,54 +262,37 @@ export default function CreateDayScreen() {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        {/* Шапка Genesis.exe × ArtTech */}
-        <View style={styles.introCard}>
-          <View style={styles.cornerTL} />
-          <View style={styles.cornerBR} />
-          <View style={styles.introTopRow}>
-            <Text style={styles.eyebrow}>• CAPTURE.EXE // NEW_MEMORY</Text>
-            <TouchableOpacity onPress={() => router.push('/guide' as Href)}>
-              <Text style={styles.guideLink}>Гид →</Text>
-            </TouchableOpacity>
-          </View>
-          <Text style={styles.introTitle}>Зафиксируй ощущение дня_</Text>
+        <View style={styles.introBlock}>
+          <Text style={styles.introTitle}>Как прошёл этот день?</Text>
           <Text style={styles.introSub}>
-            Слова, альбом фотографий и саундтрек сложатся в живую страницу твоего дневника.
+            Слова, фотографии и музыка объединятся в живое воспоминание с учётом вашего стиля и настроения.
           </Text>
           <View style={styles.progressRow}>
             {[
-              { label: 'СЛОВА', done: step1Done },
-              { label: 'АЛЬБОМ', done: step2Done },
-              { label: 'ТРЕК', done: step3Done },
+              { label: 'Запись', done: step1Done },
+              { label: 'Фото', done: step2Done },
+              { label: 'Песня', done: step3Done },
             ].map((item) => (
               <View key={item.label} style={styles.progressCol}>
-                <View
-                  style={[styles.progressBar, item.done && styles.progressBarActive]}
-                />
-                <Text
-                  style={[
-                    styles.progressStepLabel,
-                    item.done && styles.progressStepLabelActive,
-                  ]}
-                >
+                <View style={[styles.progressBar, item.done && styles.progressBarActive]} />
+                <Text style={[styles.progressLabel, item.done && styles.progressLabelActive]}>
                   {item.label}
                 </Text>
               </View>
             ))}
-            <Text style={styles.progressText}>{readyCount}/3</Text>
           </View>
         </View>
 
-        {/* ШАГ 01 // СЛОВА */}
-        <View style={[styles.stepCard, step1Done && styles.stepCardReady]}>
-          <View style={styles.stepHeader}>
-            <View style={styles.stepTagRow}>
-              <Text style={styles.stepTag}>01 // СЛОВА</Text>
+        {/* Текст дня */}
+        <View style={[styles.sectionCard, step1Done && styles.sectionCardReady]}>
+          <View style={styles.sectionHeader}>
+            <View style={styles.sectionTitleRow}>
+              <Text style={styles.sectionTitle}>Запись о дне</Text>
               {step1Done && (
-                <Ionicons name="checkmark-circle" size={14} color={THEME.colors.accent} />
+                <Ionicons name="checkmark-circle" size={16} color={THEME.colors.accent} />
               )}
             </View>
-            <Text style={[styles.stepHint, step1Done && styles.stepHintReady]}>
+            <Text style={[styles.sectionHint, step1Done && styles.sectionHintReady]}>
               {step1Done
                 ? `${trimmedLen} симв.`
                 : `ещё ${Math.max(0, 10 - trimmedLen)} симв.`}
@@ -306,7 +300,7 @@ export default function CreateDayScreen() {
           </View>
           <TextInput
             style={styles.textArea}
-            placeholder="Опиши детали дня: погоду, свет, запахи, кто был рядом и что чувствовалось внутри…"
+            placeholder="Погода, свет, запахи, люди рядом и мелкие детали, которые хочется запомнить…"
             placeholderTextColor={THEME.colors.textDim}
             multiline
             maxLength={4000}
@@ -319,31 +313,27 @@ export default function CreateDayScreen() {
           />
         </View>
 
-        {/* ШАГ 02 // АЛЬБОМ КАДРОВ */}
-        <View style={[styles.stepCard, step2Done && styles.stepCardReady]}>
-          <View style={styles.stepHeader}>
-            <View style={styles.stepTagRow}>
-              <Text style={styles.stepTag}>02 // АЛЬБОМ ФОТО</Text>
+        {/* Альбом фотографий */}
+        <View style={[styles.sectionCard, step2Done && styles.sectionCardReady]}>
+          <View style={styles.sectionHeader}>
+            <View style={styles.sectionTitleRow}>
+              <Text style={styles.sectionTitle}>Фотографии</Text>
               {step2Done && (
-                <Ionicons name="checkmark-circle" size={14} color={THEME.colors.accent} />
+                <Ionicons name="checkmark-circle" size={16} color={THEME.colors.accent} />
               )}
             </View>
-            <Text style={[styles.stepHint, step2Done && styles.stepHintReady]}>
-              {photos.length}/{MAX_PHOTOS} кадров
+            <Text style={[styles.sectionHint, step2Done && styles.sectionHintReady]}>
+              {photos.length} из {MAX_PHOTOS}
             </Text>
           </View>
 
           {coverPhoto && canRenderUri(coverPhoto.uri) ? (
             <View style={styles.albumBlock}>
-              {/* Главный кадр обложки */}
               <View style={styles.coverBox}>
                 <Image source={{ uri: coverPhoto.uri }} style={styles.previewImage} />
                 <View style={styles.coverOverlayTop}>
                   <View style={styles.coverBadge}>
-                    <View style={styles.coverDot} />
-                    <Text style={styles.coverBadgeText}>
-                      ГЛАВНЫЙ КАДР · 1/{photos.length}
-                    </Text>
+                    <Text style={styles.coverBadgeText}>Обложка · 1/{photos.length}</Text>
                   </View>
                   {photos.length < MAX_PHOTOS ? (
                     <TouchableOpacity
@@ -351,14 +341,13 @@ export default function CreateDayScreen() {
                       style={styles.addMorePill}
                       activeOpacity={0.85}
                     >
-                      <Ionicons name="add" size={14} color={THEME.colors.accentText} />
-                      <Text style={styles.addMoreText}>Ещё фото</Text>
+                      <Ionicons name="add" size={15} color={THEME.colors.accentText} />
+                      <Text style={styles.addMoreText}>Добавить</Text>
                     </TouchableOpacity>
                   ) : null}
                 </View>
               </View>
 
-              {/* Плёночная полоска миниатюр альбома */}
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
@@ -371,19 +360,16 @@ export default function CreateDayScreen() {
                       key={`${photo.uri}-${idx}`}
                       onPress={() => makeCover(idx)}
                       activeOpacity={0.85}
-                      style={[
-                        styles.thumbWrap,
-                        isCover && styles.thumbWrapCover,
-                      ]}
+                      style={[styles.thumbWrap, isCover && styles.thumbWrapCover]}
                     >
                       {canRenderUri(photo.uri) ? (
                         <Image source={{ uri: photo.uri }} style={styles.thumbImg} />
                       ) : null}
-                      <View style={styles.thumbIndex}>
-                        <Text style={styles.thumbIndexText}>
-                          {isCover ? '★' : `0${idx + 1}`}
-                        </Text>
-                      </View>
+                      {isCover ? (
+                        <View style={styles.thumbStar}>
+                          <Ionicons name="star" size={10} color={THEME.colors.accent} />
+                        </View>
+                      ) : null}
                       <TouchableOpacity
                         onPress={() => removePhoto(idx)}
                         style={styles.thumbDelete}
@@ -402,15 +388,14 @@ export default function CreateDayScreen() {
                     activeOpacity={0.8}
                   >
                     <Ionicons name="add" size={20} color={THEME.colors.accent} />
-                    <Text style={styles.thumbAddLabel}>Добавить</Text>
                   </TouchableOpacity>
                 ) : null}
               </ScrollView>
 
               <Text style={styles.albumTip}>
                 {photos.length > 1
-                  ? 'Кадры будут плавно сменяться в ритме песни. Нажми на миниатюру, чтобы сделать её обложкой.'
-                  : 'Можешь добавить ещё до 5 снимков, чтобы собрать живой альбом дня.'}
+                  ? 'Кадры будут плавно сменяться под музыку. Нажмите на миниатюру, чтобы сделать её обложкой.'
+                  : 'Можно добавить до 6 снимков — они сложатся в живой альбом дня.'}
               </Text>
             </View>
           ) : (
@@ -419,32 +404,30 @@ export default function CreateDayScreen() {
                 <View style={styles.photoIconCircle}>
                   <Ionicons name="images-outline" size={24} color={THEME.colors.accent} />
                 </View>
-                <Text style={styles.photoPlaceholder}>Выбрать 1–6 фотографий дня</Text>
-                <Text style={styles.photoSub}>
-                  Из них сложится палитра и живой альбом воспоминания
-                </Text>
+                <Text style={styles.photoPlaceholder}>Выбрать фотографии дня</Text>
+                <Text style={styles.photoSub}>От 1 до 6 снимков из галереи</Text>
               </View>
             </TouchableOpacity>
           )}
         </View>
 
-        {/* ШАГ 03 // САУНДТРЕК */}
-        <View style={[styles.stepCard, step3Done && styles.stepCardReady]}>
-          <View style={styles.stepHeader}>
-            <View style={styles.stepTagRow}>
-              <Text style={styles.stepTag}>03 // САУНДТРЕК</Text>
+        {/* Песня дня */}
+        <View style={[styles.sectionCard, step3Done && styles.sectionCardReady]}>
+          <View style={styles.sectionHeader}>
+            <View style={styles.sectionTitleRow}>
+              <Text style={styles.sectionTitle}>Песня дня</Text>
               {step3Done && (
-                <Ionicons name="checkmark-circle" size={14} color={THEME.colors.accent} />
+                <Ionicons name="checkmark-circle" size={16} color={THEME.colors.accent} />
               )}
             </View>
-            <Text style={styles.stepHint}>Задаёт ритм и темп кадров</Text>
+            <Text style={styles.sectionHint}>Влияет на ритм и свет</Text>
           </View>
 
           <View style={styles.songInputWrap}>
-            <Ionicons name="musical-notes-outline" size={18} color={THEME.colors.accent} />
+            <Ionicons name="musical-notes-outline" size={18} color={THEME.colors.textMuted} />
             <TextInput
               style={styles.songInput}
-              placeholder="Исполнитель или название песни"
+              placeholder="Исполнитель или название трека"
               placeholderTextColor={THEME.colors.textDim}
               value={songQuery}
               onChangeText={(value) => {
@@ -476,10 +459,7 @@ export default function CreateDayScreen() {
           {selectedTrack ? (
             <View style={styles.selectedTrack}>
               {selectedTrack.artworkUrl ? (
-                <Image
-                  source={{ uri: selectedTrack.artworkUrl }}
-                  style={styles.artwork}
-                />
+                <Image source={{ uri: selectedTrack.artworkUrl }} style={styles.artwork} />
               ) : (
                 <View style={styles.artworkFallback}>
                   <Ionicons name="disc-outline" size={20} color={THEME.colors.accent} />
@@ -490,11 +470,11 @@ export default function CreateDayScreen() {
                 <Text style={styles.selectedTrackTitle} numberOfLines={1}>
                   {selectedTrack.title}
                 </Text>
-                <Text style={styles.stepHint} numberOfLines={1}>
+                <Text style={styles.sectionHint} numberOfLines={1}>
                   {selectedTrack.artist} · {selectedTrack.genre}
                 </Text>
                 <Text style={styles.energyTag}>
-                  {describeEnergy(selectedTrack.energy)} ({Math.round(selectedTrack.energy * 100)}%)
+                  {describeEnergy(selectedTrack.energy)}
                 </Text>
               </View>
 
@@ -528,22 +508,21 @@ export default function CreateDayScreen() {
           ) : trackLoading ? (
             <View style={styles.loadingRow}>
               <ActivityIndicator size="small" color={THEME.colors.accent} />
-              <Text style={styles.stepHint}>Ищем официальные фрагменты…</Text>
+              <Text style={styles.sectionHint}>Ищем треки…</Text>
             </View>
           ) : trackError ? (
             <View style={styles.trackError}>
               <Text style={styles.errorText}>{trackError}</Text>
               {needsAuth ? (
                 <TouchableOpacity onPress={() => router.push('/auth/login')}>
-                  <Text style={styles.changeTrack}>Войти в аккаунт →</Text>
+                  <Text style={styles.changeTrack}>Войти в аккаунт</Text>
                 </TouchableOpacity>
               ) : null}
             </View>
           ) : tracks.length > 0 ? (
             <View style={styles.trackResults}>
               {tracks.map((track, idx) => {
-                const isPlayingThis =
-                  previewingId === track.id && previewStatus.playing;
+                const isPlayingThis = previewingId === track.id && previewStatus.playing;
                 return (
                   <View
                     key={track.id}
@@ -586,8 +565,8 @@ export default function CreateDayScreen() {
                         <Text style={styles.trackResultTitle} numberOfLines={1}>
                           {track.title}
                         </Text>
-                        <Text style={styles.stepHint} numberOfLines={1}>
-                          {track.artist} · {track.genre} · {describeEnergy(track.energy)}
+                        <Text style={styles.sectionHint} numberOfLines={1}>
+                          {track.artist} · {track.genre}
                         </Text>
                       </View>
                       <Ionicons
@@ -601,10 +580,10 @@ export default function CreateDayScreen() {
               })}
             </View>
           ) : songQuery.trim().length >= 2 ? (
-            <Text style={styles.stepHint}>Подходящих треков с preview не найдено.</Text>
+            <Text style={styles.sectionHint}>Ничего не нашлось. Попробуйте другое название.</Text>
           ) : (
-            <Text style={styles.stepHint}>
-              Начни вводить исполнителя или название — фрагмент можно послушать прямо в списке.
+            <Text style={styles.sectionHint}>
+              Нажмите на обложку в списке, чтобы прослушать фрагмент перед выбором.
             </Text>
           )}
         </View>
@@ -614,34 +593,50 @@ export default function CreateDayScreen() {
             <Text style={styles.errorText}>{error}</Text>
             {needsAuth ? (
               <TouchableOpacity onPress={() => router.push('/auth/login')}>
-                <Text style={styles.changeTrack}>Войти в аккаунт →</Text>
+                <Text style={styles.changeTrack}>Войти в аккаунт</Text>
               </TouchableOpacity>
             ) : null}
           </View>
         ) : null}
 
         <TouchableOpacity
-          style={[
-            styles.submitBtn,
-            (loading || readyCount < 3) && styles.submitBtnDim,
-          ]}
+          style={styles.cloudAIConsent}
+          onPress={() => setAllowCloudAI((value) => !value)}
+          activeOpacity={0.8}
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: allowCloudAI }}
+        >
+          <Ionicons
+            name={allowCloudAI ? 'checkbox' : 'square-outline'}
+            size={22}
+            color={allowCloudAI ? THEME.colors.accent : THEME.colors.textMuted}
+          />
+          <View style={styles.cloudAITextWrap}>
+            <Text style={styles.cloudAITitle}>Разрешить Gemini (необязательно)</Text>
+            <Text style={styles.cloudAIHint}>
+              Если включить, Google Gemini получит текст записи, имя и описание
+              профиля, заголовки последних дней и данные песни. Фотографии не
+              отправляются — оттенки вычисляются на сервере. Без согласия
+              используется локальная обработка.
+            </Text>
+          </View>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.submitBtn, (loading || readyCount < 3) && styles.submitBtnDim]}
           onPress={handleSave}
           disabled={loading || readyCount < 3}
           activeOpacity={0.85}
         >
-          <Text style={styles.submitText}>СОБРАТЬ ВОСПОМИНАНИЕ →</Text>
+          <Text style={styles.submitText}>Собрать воспоминание</Text>
         </TouchableOpacity>
       </ScrollView>
 
-      {/* Атмосферный экран сборки воспоминания */}
       <Modal transparent visible={loading} animationType="fade">
         <View style={styles.overlayRoot}>
           <View style={styles.overlayCard}>
-            <View style={styles.cornerTL} />
-            <View style={styles.cornerBR} />
             <ActivityIndicator size="large" color={THEME.colors.accent} />
-            <Text style={styles.overlayCode}>RENDER.EXE // SYNTHESIS</Text>
-            <Text style={styles.overlayTitle}>Создаём страницу дня</Text>
+            <Text style={styles.overlayTitle}>Собираем ваш день</Text>
             <Text style={styles.overlayStage}>{BUILD_STAGES[stageIndex]}</Text>
           </View>
         </View>
@@ -657,70 +652,27 @@ const styles = StyleSheet.create({
     gap: 16,
     paddingBottom: 48,
   },
-  introCard: {
-    position: 'relative',
-    backgroundColor: THEME.colors.surface,
-    borderWidth: 1,
-    borderColor: THEME.colors.borderStrong,
-    borderRadius: THEME.radius.md,
-    padding: 16,
-    gap: 7,
-  },
-  cornerTL: {
-    position: 'absolute',
-    top: -1,
-    left: -1,
-    width: 14,
-    height: 14,
-    borderTopWidth: 2,
-    borderLeftWidth: 2,
-    borderColor: THEME.colors.accent,
-    borderTopLeftRadius: THEME.radius.md,
-  },
-  cornerBR: {
-    position: 'absolute',
-    bottom: -1,
-    right: -1,
-    width: 14,
-    height: 14,
-    borderBottomWidth: 2,
-    borderRightWidth: 2,
-    borderColor: THEME.colors.warmGold,
-    borderBottomRightRadius: THEME.radius.md,
-  },
-  introTopRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  eyebrow: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 9,
-    letterSpacing: 1.4,
-    color: THEME.colors.accent,
-  },
-  guideLink: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 10,
-    color: THEME.colors.warmGold,
+  introBlock: {
+    gap: 8,
+    paddingTop: 2,
   },
   introTitle: {
     fontFamily: THEME.fonts.serif,
-    fontSize: 25,
+    fontSize: 28,
     color: THEME.colors.text,
+    lineHeight: 34,
   },
   introSub: {
     color: THEME.colors.textMuted,
     fontSize: 13,
-    lineHeight: 19,
+    lineHeight: 20,
   },
   progressRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 8,
-    marginTop: 8,
+    gap: 10,
+    marginTop: 6,
   },
-  progressCol: { flex: 1, gap: 4 },
+  progressCol: { flex: 1, gap: 5 },
   progressBar: {
     height: 3,
     borderRadius: 99,
@@ -729,54 +681,45 @@ const styles = StyleSheet.create({
   progressBarActive: {
     backgroundColor: THEME.colors.accent,
   },
-  progressStepLabel: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 8,
-    letterSpacing: 0.8,
+  progressLabel: {
+    fontSize: 11,
     color: THEME.colors.textDim,
   },
-  progressStepLabelActive: {
+  progressLabelActive: {
     color: THEME.colors.text,
+    fontWeight: '500',
   },
-  progressText: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 11,
-    color: THEME.colors.accent,
-    marginTop: -4,
-  },
-  stepCard: {
+  sectionCard: {
     backgroundColor: THEME.colors.surface,
     borderWidth: 1,
     borderColor: THEME.colors.border,
     borderRadius: THEME.radius.md,
-    padding: 14,
-    gap: 10,
+    padding: 15,
+    gap: 12,
   },
-  stepCardReady: {
-    borderColor: 'rgba(216, 255, 75, 0.3)',
+  sectionCardReady: {
+    borderColor: 'rgba(216, 255, 75, 0.28)',
   },
-  stepHeader: {
+  sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  stepTagRow: {
+  sectionTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
   },
-  stepTag: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 11,
-    fontWeight: '700',
-    color: THEME.colors.accent,
-    letterSpacing: 0.9,
+  sectionTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: THEME.colors.text,
   },
-  stepHint: {
-    fontSize: 11,
+  sectionHint: {
+    fontSize: 12,
     color: THEME.colors.textDim,
   },
-  stepHintReady: {
+  sectionHintReady: {
     color: THEME.colors.warmGold,
   },
   textArea: {
@@ -784,14 +727,14 @@ const styles = StyleSheet.create({
     color: THEME.colors.text,
     borderRadius: THEME.radius.sm,
     padding: 14,
-    minHeight: 112,
+    minHeight: 118,
     fontSize: 15,
     lineHeight: 22,
     borderWidth: 1,
     borderColor: THEME.colors.border,
   },
   photoBox: {
-    height: 205,
+    height: 196,
     borderRadius: THEME.radius.sm,
     backgroundColor: THEME.colors.surfaceElevated,
     borderWidth: 1,
@@ -828,7 +771,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     backgroundColor: THEME.colors.surfaceElevated,
     borderWidth: 1,
-    borderColor: THEME.colors.borderStrong,
+    borderColor: THEME.colors.border,
   },
   previewImage: { width: '100%', height: '100%', resizeMode: 'cover' },
   coverOverlayTop: {
@@ -841,26 +784,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   coverBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: 'rgba(6, 6, 9, 0.8)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.16)',
+    backgroundColor: 'rgba(6, 6, 9, 0.76)',
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: THEME.radius.pill,
   },
-  coverDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 99,
-    backgroundColor: THEME.colors.accent,
-  },
   coverBadgeText: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 9,
-    letterSpacing: 0.9,
+    fontSize: 11,
+    fontWeight: '600',
     color: THEME.colors.text,
   },
   addMorePill: {
@@ -868,13 +799,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 4,
     backgroundColor: THEME.colors.accent,
-    paddingHorizontal: 10,
+    paddingHorizontal: 11,
     paddingVertical: 5,
     borderRadius: THEME.radius.pill,
   },
   addMoreText: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: '700',
     color: THEME.colors.accentText,
   },
@@ -900,20 +830,16 @@ const styles = StyleSheet.create({
     height: '100%',
     resizeMode: 'cover',
   },
-  thumbIndex: {
+  thumbStar: {
     position: 'absolute',
     bottom: 4,
     left: 4,
+    width: 18,
+    height: 18,
+    borderRadius: 99,
     backgroundColor: 'rgba(6, 6, 9, 0.78)',
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-    borderRadius: 4,
-  },
-  thumbIndexText: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 9,
-    color: THEME.colors.accent,
-    fontWeight: '700',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   thumbDelete: {
     position: 'absolute',
@@ -922,7 +848,7 @@ const styles = StyleSheet.create({
     width: 18,
     height: 18,
     borderRadius: 99,
-    backgroundColor: 'rgba(6, 6, 9, 0.82)',
+    backgroundColor: 'rgba(6, 6, 9, 0.8)',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -932,20 +858,14 @@ const styles = StyleSheet.create({
     borderRadius: THEME.radius.sm,
     borderWidth: 1,
     borderStyle: 'dashed',
-    borderColor: THEME.colors.accent,
-    backgroundColor: THEME.colors.accentSoft,
+    borderColor: THEME.colors.borderStrong,
+    backgroundColor: THEME.colors.surfaceElevated,
     justifyContent: 'center',
     alignItems: 'center',
-    gap: 2,
-  },
-  thumbAddLabel: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 8,
-    color: THEME.colors.accent,
   },
   albumTip: {
-    fontSize: 11,
-    lineHeight: 16,
+    fontSize: 12,
+    lineHeight: 17,
     color: THEME.colors.textDim,
   },
   songInputWrap: {
@@ -968,7 +888,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    paddingVertical: 6,
+    paddingVertical: 4,
   },
   trackResults: {
     borderWidth: 1,
@@ -1026,8 +946,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 10,
   },
-  trackResultText: { flex: 1, gap: 3 },
-  trackResultTitle: { color: THEME.colors.text, fontSize: 13, fontWeight: '600' },
+  trackResultText: { flex: 1, gap: 2 },
+  trackResultTitle: { color: THEME.colors.text, fontSize: 14, fontWeight: '600' },
   selectedTrack: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1041,9 +961,9 @@ const styles = StyleSheet.create({
   selectedTrackInfo: { flex: 1, gap: 2 },
   selectedTrackTitle: { color: THEME.colors.text, fontSize: 14, fontWeight: '700' },
   energyTag: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 10,
+    fontSize: 11,
     color: THEME.colors.accent,
+    fontWeight: '600',
     marginTop: 2,
   },
   selectedActions: {
@@ -1051,17 +971,17 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   previewBtnActive: {
-    width: 30,
-    height: 30,
+    width: 32,
+    height: 32,
     borderRadius: 99,
     backgroundColor: THEME.colors.accent,
     justifyContent: 'center',
     alignItems: 'center',
   },
   changeTrack: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 11,
+    fontSize: 12,
     color: THEME.colors.accent,
+    fontWeight: '600',
   },
   trackError: { gap: 8 },
   errorBox: {
@@ -1077,20 +997,39 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 19,
   },
+  cloudAIConsent: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    padding: 14,
+    backgroundColor: THEME.colors.surface,
+    borderWidth: 1,
+    borderColor: THEME.colors.border,
+    borderRadius: THEME.radius.md,
+  },
+  cloudAITextWrap: { flex: 1, gap: 5 },
+  cloudAITitle: {
+    color: THEME.colors.text,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  cloudAIHint: {
+    color: THEME.colors.textMuted,
+    fontSize: 11,
+    lineHeight: 16,
+  },
   submitBtn: {
     backgroundColor: THEME.colors.accent,
-    paddingVertical: 17,
+    paddingVertical: 16,
     borderRadius: THEME.radius.pill,
     alignItems: 'center',
     marginTop: 4,
   },
   submitBtnDim: { opacity: 0.45 },
   submitText: {
-    fontFamily: THEME.fonts.mono,
     color: THEME.colors.accentText,
-    fontWeight: '800',
-    fontSize: 13,
-    letterSpacing: 1.1,
+    fontWeight: '700',
+    fontSize: 15,
   },
   overlayRoot: {
     flex: 1,
@@ -1100,7 +1039,6 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   overlayCard: {
-    position: 'relative',
     width: '100%',
     maxWidth: 320,
     backgroundColor: THEME.colors.surface,
@@ -1111,23 +1049,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
   },
-  overlayCode: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 9,
-    letterSpacing: 1.5,
-    color: THEME.colors.warmGold,
-    marginTop: 4,
-  },
   overlayTitle: {
     fontFamily: THEME.fonts.serif,
-    fontSize: 21,
+    fontSize: 22,
     color: THEME.colors.text,
+    marginTop: 4,
   },
   overlayStage: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 11,
-    color: THEME.colors.accent,
+    fontSize: 13,
+    color: THEME.colors.textMuted,
     textAlign: 'center',
-    lineHeight: 17,
+    lineHeight: 19,
   },
 });

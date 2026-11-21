@@ -5,10 +5,34 @@
 mobile/node_modules/
 mobile/.expo/
 mobile/dist/
+mobile/.env
+mobile/web-build/
+mobile/ios/
+mobile/android/
+mobile/expo-env.d.ts
+
+# Node.js and generated output
+node_modules/
+.expo/
+web-build/
+coverage/
+*.tsbuildinfo
+
+# Runtime logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
 
 backend/bin/
 backend/*.exe
+backend/coverage.out
+backend/coverage.html
+backend/uploads/
 
+# Operating systems and editors
+.DS_Store
 Thumbs.db
 desktop.ini
 .vscode/

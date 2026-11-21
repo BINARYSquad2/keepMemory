@@ -21,17 +21,40 @@ func InitDB() (*pgxpool.Pool, error) {
 		return nil, fmt.Errorf("DATABASE_URL не задан в .env или переменных окружения")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
-	pool, err := pgxpool.New(ctx, dsn)
-	if err != nil {
-		return nil, fmt.Errorf("ошибка инициализации пула: %w", err)
-	}
+	var pool *pgxpool.Pool
+	var lastErr error
+	for attempt := 0; attempt < 5; attempt++ {
+		pool, err := pgxpool.New(ctx, dsn)
+		if err != nil {
+			return nil, fmt.Errorf("ошибка инициализации пула: %w", err)
+		}
 
-	if err := pool.Ping(ctx); err != nil {
+		pingCtx, pingCancel := context.WithTimeout(ctx, 3*time.Second)
+		lastErr = pool.Ping(pingCtx)
+		pingCancel()
+		if lastErr == nil {
+			break
+		}
 		pool.Close()
-		return nil, fmt.Errorf("нет связи с PostgreSQL (проверь пароль и порт в .env): %w", err)
+		pool = nil
+
+		if attempt == 4 {
+			break
+		}
+		delay := time.Duration(250*(1<<attempt)) * time.Millisecond
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, fmt.Errorf("подключение к PostgreSQL прервано: %w", ctx.Err())
+		case <-timer.C:
+		}
+	}
+	if pool == nil {
+		return nil, fmt.Errorf("нет связи с PostgreSQL после нескольких попыток: %w", lastErr)
 	}
 
 	schema := `
@@ -52,10 +75,17 @@ func InitDB() (*pgxpool.Pool, error) {
 		folder_title TEXT NOT NULL,
 		text TEXT NOT NULL,
 		photo_uri TEXT NOT NULL,
+		photo_uris JSONB NOT NULL DEFAULT '[]'::jsonb,
 		track JSONB NOT NULL,
 		style JSONB NOT NULL,
 		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 	);
+
+	ALTER TABLE days
+		ADD COLUMN IF NOT EXISTS photo_uris JSONB NOT NULL DEFAULT '[]'::jsonb;
+
+	CREATE INDEX IF NOT EXISTS idx_days_user_created
+		ON days (user_id, created_at DESC);
 	`
 
 	if _, err := pool.Exec(ctx, schema); err != nil {
@@ -68,7 +98,7 @@ func InitDB() (*pgxpool.Pool, error) {
 
 func scanDay(row pgx.Row) (Day, error) {
 	var day Day
-	var trackJSON, styleJSON []byte
+	var photoURIsJSON, trackJSON, styleJSON []byte
 
 	if err := row.Scan(
 		&day.ID,
@@ -77,11 +107,21 @@ func scanDay(row pgx.Row) (Day, error) {
 		&day.FolderTitle,
 		&day.Text,
 		&day.PhotoURI,
+		&photoURIsJSON,
 		&trackJSON,
 		&styleJSON,
 		&day.CreatedAt,
 	); err != nil {
 		return Day{}, err
+	}
+
+	if len(photoURIsJSON) > 0 {
+		if err := json.Unmarshal(photoURIsJSON, &day.PhotoURIs); err != nil {
+			day.PhotoURIs = nil
+		}
+	}
+	if len(day.PhotoURIs) == 0 && day.PhotoURI != "" {
+		day.PhotoURIs = []string{day.PhotoURI}
 	}
 
 	if err := json.Unmarshal(trackJSON, &day.Track); err != nil {
@@ -90,6 +130,8 @@ func scanDay(row pgx.Row) (Day, error) {
 	if err := json.Unmarshal(styleJSON, &day.Style); err != nil {
 		return Day{}, fmt.Errorf("decode style for day %s: %w", day.ID, err)
 	}
+
+	day.Mood = day.Style.Mood
 
 	return day, nil
 }

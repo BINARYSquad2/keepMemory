@@ -4,6 +4,7 @@ import { DraftPhoto, MemoryDay, TrackInfo } from '../types/memory';
 
 const TOKEN_KEY = 'keepmemory.authToken';
 const ALBUM_KEY_PREFIX = 'km_album_';
+const SAFE_GET_RETRY_LIMIT = 3;
 
 const configuredApiUrl = process.env.EXPO_PUBLIC_API_URL?.trim().replace(/\/+$/, '');
 export const API_URL =
@@ -101,7 +102,7 @@ async function saveLocalExtraPhotos(dayId: string, uris: string[]): Promise<void
       await SecureStore.setItemAsync(key, raw);
     }
   } catch {
-    // Игнорируем ошибку локального кэша, основная запись уже сохранена на сервере
+    // Основная запись уже сохранена на сервере
   }
 }
 
@@ -130,8 +131,8 @@ async function hydrateMemoryDay(day: MemoryDay): Promise<MemoryDay> {
     ? day.photoUris.map(resolveMediaUrl).filter(Boolean)
     : [];
 
-  // Если сервер уже отдаёт массив фото (после апдейта бэка / Railway) — используем его,
-  // иначе подмешиваем сохранённые дополнительные кадры альбома с устройства.
+  // Если сервер уже отдаёт массив фото — используем его,
+  // иначе подмешиваем сохранённые дополнительные кадры с устройства.
   const extras = serverPhotos.length > 1 ? [] : await readLocalExtraPhotos(day.id);
 
   const merged: string[] = [];
@@ -142,8 +143,11 @@ async function hydrateMemoryDay(day: MemoryDay): Promise<MemoryDay> {
   serverPhotos.forEach(pushUnique);
   extras.forEach(pushUnique);
 
+  const resolvedMood = day.mood ?? day.style?.mood;
+
   return {
     ...day,
+    mood: resolvedMood,
     photoUri: merged[0] ?? cover,
     photoUris: merged,
   };
@@ -173,13 +177,41 @@ async function request<T>(
   }
 
   let response: Response;
-  try {
-    response = await fetch(`${API_URL}${path}`, { ...init, headers });
-  } catch (error) {
-    const detail = error instanceof Error ? ` ${error.message}` : '';
-    throw new Error(
-      `Не удалось подключиться к серверу (${API_URL}). Проверьте сеть.${detail}`
-    );
+  const isSafeGet = (init.method ?? 'GET').toUpperCase() === 'GET';
+  let attempt = 0;
+  while (true) {
+    try {
+      response = await fetch(`${API_URL}${path}`, { ...init, headers });
+    } catch (error) {
+      if (isSafeGet && attempt < SAFE_GET_RETRY_LIMIT - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 250 * 2 ** attempt));
+        attempt += 1;
+        continue;
+      }
+      const detail = error instanceof Error ? ` ${error.message}` : '';
+      throw new Error(
+        `Не удалось подключиться к серверу (${API_URL}). Проверьте сеть.${detail}`
+      );
+    }
+
+    const retryableStatus =
+      response.status === 408 ||
+      response.status === 429 ||
+      response.status === 500 ||
+      response.status === 502 ||
+      response.status === 503 ||
+      response.status === 504;
+    if (!isSafeGet || !retryableStatus || attempt >= SAFE_GET_RETRY_LIMIT - 1) {
+      break;
+    }
+
+    const retryAfter = Number(response.headers.get('Retry-After'));
+    const delay =
+      Number.isFinite(retryAfter) && retryAfter >= 0
+        ? Math.min(retryAfter * 1000, 2000)
+        : 250 * 2 ** attempt;
+    await new Promise((resolve) => setTimeout(resolve, delay));
+    attempt += 1;
   }
 
   let payload: unknown;
@@ -266,6 +298,13 @@ export async function getDay(id: string): Promise<MemoryDay> {
   return hydrateMemoryDay(result.day);
 }
 
+export async function deleteDay(id: string): Promise<{ warning?: string }> {
+  return request<{ deleted: boolean; warning?: string }>(
+    `/api/days/${encodeURIComponent(id)}`,
+    { method: 'DELETE' }
+  );
+}
+
 export async function searchTracks(query: string): Promise<TrackInfo[]> {
   const result = await request<{ tracks: TrackInfo[] | null }>(
     `/api/tracks/search?q=${encodeURIComponent(query)}`
@@ -317,54 +356,151 @@ function utf8ToBytes(str: string): Uint8Array {
   return bytes;
 }
 
-function detectPhotoMeta(uri: string, mimeType?: string): { name: string; type: string } {
+function detectPhotoMeta(
+  uri: string,
+  mimeType?: string,
+  index = 0
+): { name: string; type: string } {
+  const suffix = index > 0 ? `-${index + 1}` : '';
   const mime = mimeType?.toLowerCase() ?? '';
   if (mime === 'image/jpeg' || mime === 'image/jpg') {
-    return { name: 'day-photo.jpg', type: 'image/jpeg' };
+    return { name: `day-photo${suffix}.jpg`, type: 'image/jpeg' };
   }
   if (mime === 'image/png' || /\.png(?:$|[?#])/i.test(uri)) {
-    return { name: 'day-photo.png', type: 'image/png' };
+    return { name: `day-photo${suffix}.png`, type: 'image/png' };
   }
   if (mime === 'image/webp' || /\.webp(?:$|[?#])/i.test(uri)) {
-    return { name: 'day-photo.webp', type: 'image/webp' };
+    return { name: `day-photo${suffix}.webp`, type: 'image/webp' };
   }
   if (mime === 'image/heic' || /\.heic(?:$|[?#])/i.test(uri)) {
-    return { name: 'day-photo.heic', type: 'image/heic' };
+    return { name: `day-photo${suffix}.heic`, type: 'image/heic' };
   }
-  return { name: 'day-photo.jpg', type: 'image/jpeg' };
+  return { name: `day-photo${suffix}.jpg`, type: 'image/jpeg' };
+}
+
+interface MultipartPhotoPart {
+  fieldName: 'photo' | 'photos';
+  base64: string;
+  name: string;
+  type: string;
 }
 
 function buildMultipartBody(params: {
   text: string;
   track: TrackInfo;
-  photoBase64: string;
-  photoName: string;
-  photoType: string;
+  photos: MultipartPhotoPart[];
+  allowCloudAI: boolean;
 }): { body: Uint8Array; contentType: string } {
   const boundary = `----KeepMemoryBoundary${Date.now().toString(16)}`;
-  const prefix = utf8ToBytes(
-    `--${boundary}\r\n` +
-      `Content-Disposition: form-data; name="text"\r\n\r\n` +
-      `${params.text}\r\n` +
+  const chunks: Uint8Array[] = [
+    utf8ToBytes(
       `--${boundary}\r\n` +
-      `Content-Disposition: form-data; name="track"\r\n\r\n` +
-      `${JSON.stringify(params.track)}\r\n` +
-      `--${boundary}\r\n` +
-      `Content-Disposition: form-data; name="photo"; filename="${params.photoName}"\r\n` +
-      `Content-Type: ${params.photoType}\r\n\r\n`
-  );
-  const photoBytes = base64ToBytes(params.photoBase64);
-  const suffix = utf8ToBytes(`\r\n--${boundary}--\r\n`);
+        `Content-Disposition: form-data; name="text"\r\n\r\n` +
+        `${params.text}\r\n` +
+        `--${boundary}\r\n` +
+        `Content-Disposition: form-data; name="track"\r\n\r\n` +
+        `${JSON.stringify(params.track)}\r\n` +
+        `--${boundary}\r\n` +
+        `Content-Disposition: form-data; name="allowCloudAI"\r\n\r\n` +
+        `${params.allowCloudAI}\r\n`
+    ),
+  ];
 
-  const body = new Uint8Array(prefix.length + photoBytes.length + suffix.length);
-  body.set(prefix, 0);
-  body.set(photoBytes, prefix.length);
-  body.set(suffix, prefix.length + photoBytes.length);
+  for (const photo of params.photos) {
+    chunks.push(
+      utf8ToBytes(
+        `--${boundary}\r\n` +
+          `Content-Disposition: form-data; name="${photo.fieldName}"; filename="${photo.name}"\r\n` +
+          `Content-Type: ${photo.type}\r\n\r\n`
+      )
+    );
+    chunks.push(base64ToBytes(photo.base64));
+    chunks.push(utf8ToBytes('\r\n'));
+  }
+
+  chunks.push(utf8ToBytes(`--${boundary}--\r\n`));
+
+  const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+  const body = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.length;
+  }
 
   return {
     body,
     contentType: `multipart/form-data; boundary=${boundary}`,
   };
+}
+
+async function sendNativeMultipartDay(
+  text: string,
+  track: TrackInfo,
+  drafts: DraftPhoto[],
+  allowCloudAI: boolean
+): Promise<MemoryDay> {
+  const parts: MultipartPhotoPart[] = [];
+  drafts.forEach((draft, idx) => {
+    if (!draft.base64) return;
+    const meta = detectPhotoMeta(draft.uri, draft.mimeType, idx);
+    parts.push({
+      fieldName: idx === 0 ? 'photo' : 'photos',
+      base64: draft.base64,
+      name: meta.name,
+      type: meta.type,
+    });
+  });
+
+  const { body, contentType } = buildMultipartBody({
+    text,
+    track,
+    photos: parts,
+    allowCloudAI,
+  });
+
+  const result = await request<{ day: MemoryDay }>('/api/days', {
+    method: 'POST',
+    body: body as unknown as BodyInit,
+    headers: { 'Content-Type': contentType },
+  });
+  return result.day;
+}
+
+async function sendFormDataDay(
+  text: string,
+  track: TrackInfo,
+  drafts: DraftPhoto[],
+  allowCloudAI: boolean
+): Promise<MemoryDay> {
+  const form = new FormData();
+  form.append('text', text);
+  form.append('track', JSON.stringify(track));
+  form.append('allowCloudAI', String(allowCloudAI));
+
+  for (let i = 0; i < drafts.length; i++) {
+    const draft = drafts[i];
+    const meta = detectPhotoMeta(draft.uri, draft.mimeType, i);
+    const fieldName = i === 0 ? 'photo' : 'photos';
+
+    if (Platform.OS === 'web' && draft.uri.startsWith('blob:')) {
+      const photo = await fetch(draft.uri).then((response) => response.blob());
+      form.append(fieldName, photo, meta.name);
+    } else {
+      form.append(fieldName, {
+        uri: draft.uri,
+        name: meta.name,
+        type: meta.type,
+      } as unknown as Blob);
+    }
+  }
+
+  const result = await request<{ day: MemoryDay }>('/api/days', {
+    method: 'POST',
+    body: form,
+    headers: {},
+  });
+  return result.day;
 }
 
 export async function createDay(input: {
@@ -374,61 +510,56 @@ export async function createDay(input: {
   photoMimeType?: string;
   photos?: DraftPhoto[];
   track: TrackInfo;
+  allowCloudAI?: boolean;
 }): Promise<MemoryDay> {
-  const coverDraft: DraftPhoto = input.photos?.[0] ?? {
-    uri: input.photoUri,
-    base64: input.photoBase64,
-    mimeType: input.photoMimeType,
-  };
-  const extraUris = (input.photos ?? []).slice(1).map((p) => p.uri).filter(Boolean);
-  const { name, type } = detectPhotoMeta(coverDraft.uri, coverDraft.mimeType);
+  const drafts: DraftPhoto[] =
+    input.photos && input.photos.length > 0
+      ? input.photos
+      : [
+          {
+            uri: input.photoUri,
+            base64: input.photoBase64,
+            mimeType: input.photoMimeType,
+          },
+        ];
+
+  const coverDraft = drafts[0];
+  const extraUris = drafts.slice(1).map((p) => p.uri).filter(Boolean);
+  const allowCloudAI = input.allowCloudAI === true;
 
   let created: MemoryDay;
 
   if (Platform.OS !== 'web' && coverDraft.base64) {
-    const { body, contentType } = buildMultipartBody({
-      text: input.text,
-      track: input.track,
-      photoBase64: coverDraft.base64,
-      photoName: name,
-      photoType: type,
-    });
-
-    const result = await request<{ day: MemoryDay }>('/api/days', {
-      method: 'POST',
-      body: body as unknown as BodyInit,
-      headers: { 'Content-Type': contentType },
-    });
-    created = result.day;
-  } else if (/^(?:file:|content:|blob:)/i.test(coverDraft.uri)) {
-    const form = new FormData();
-    form.append('text', input.text);
-    form.append('track', JSON.stringify(input.track));
-
-    if (Platform.OS === 'web' && coverDraft.uri.startsWith('blob:')) {
-      const photo = await fetch(coverDraft.uri).then((response) => response.blob());
-      form.append('photo', photo, name);
-    } else {
-      form.append('photo', {
-        uri: coverDraft.uri,
-        name,
-        type,
-      } as unknown as Blob);
+    try {
+      created = await sendNativeMultipartDay(input.text, input.track, drafts, allowCloudAI);
+    } catch (err) {
+      // Если сервер ещё не принимает большой альбом (HTTP 413), отправляем обложку,
+      // а остальные кадры сохраняем локально до обновления лимита на бэкенде.
+      if (drafts.length > 1 && err instanceof ApiError && err.status === 413) {
+        created = await sendNativeMultipartDay(input.text, input.track, [coverDraft], allowCloudAI);
+      } else {
+        throw err;
+      }
     }
-
-    const result = await request<{ day: MemoryDay }>('/api/days', {
-      method: 'POST',
-      body: form,
-      headers: {},
-    });
-    created = result.day;
+  } else if (/^(?:file:|content:|blob:)/i.test(coverDraft.uri)) {
+    try {
+      created = await sendFormDataDay(input.text, input.track, drafts, allowCloudAI);
+    } catch (err) {
+      if (drafts.length > 1 && err instanceof ApiError && err.status === 413) {
+        created = await sendFormDataDay(input.text, input.track, [coverDraft], allowCloudAI);
+      } else {
+        throw err;
+      }
+    }
   } else {
     const result = await request<{ day: MemoryDay }>('/api/days', {
       method: 'POST',
       body: JSON.stringify({
         text: input.text,
         photoUri: coverDraft.uri,
+        photoUris: drafts.map((d) => d.uri).filter(Boolean),
         track: input.track,
+        allowCloudAI,
       }),
     });
     created = result.day;

@@ -2,10 +2,10 @@ package main
 
 import (
 	"errors"
-	"log"
 	"os"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/golang-jwt/jwt/v5"
@@ -72,7 +72,7 @@ func (s *apiServer) registerUser(c *fiber.Ctx) error {
 		PasswordHash: string(passwordHash),
 		DisplayName:  name,
 		Handle:       "@" + strings.ReplaceAll(strings.ToLower(name), " ", "_"),
-		Bio:          "Фиксирую свет, звук и ощущение дней.",
+		Bio:          "",
 	}
 
 	token, err := createToken(user)
@@ -100,10 +100,7 @@ func (s *apiServer) registerUser(c *fiber.Ctx) error {
 				"error": "Пользователь с таким email уже существует",
 			})
 		}
-		log.Printf("register user in PostgreSQL: %v", err)
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Не удалось сохранить пользователя",
-		})
+		return databaseErrorResponse(c, err, "register user in PostgreSQL", "Не удалось сохранить пользователя")
 	}
 
 	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
@@ -144,10 +141,7 @@ func (s *apiServer) loginUser(c *fiber.Ctx) error {
 		})
 	}
 	if err != nil {
-		log.Printf("load user for login from PostgreSQL: %v", err)
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Не удалось выполнить вход",
-		})
+		return databaseErrorResponse(c, err, "load user for login from PostgreSQL", "Не удалось выполнить вход")
 	}
 
 	if err := bcrypt.CompareHashAndPassword(
@@ -182,7 +176,7 @@ func createToken(user User) (string, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"sub":   user.ID,
 		"email": user.Email,
-		"exp":   time.Now().Add(24 * time.Hour).Unix(),
+		"exp":   time.Now().Add(7 * 24 * time.Hour).Unix(),
 	})
 
 	return token.SignedString([]byte(secret))
@@ -265,10 +259,7 @@ func (s *apiServer) getProfile(c *fiber.Ctx) error {
 		})
 	}
 	if err != nil {
-		log.Printf("load profile from PostgreSQL: %v", err)
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Не удалось загрузить профиль",
-		})
+		return databaseErrorResponse(c, err, "load profile from PostgreSQL", "Не удалось загрузить профиль")
 	}
 
 	return c.JSON(fiber.Map{
@@ -300,9 +291,9 @@ func (s *apiServer) updateProfile(c *fiber.Ctx) error {
 		input.Handle = "@" + input.Handle
 	}
 
-	if len(input.Bio) > 160 {
+	if utf8.RuneCountInString(input.Bio) > 500 {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Описание не должно быть длиннее 160 символов",
+			"error": "Описание не должно быть длиннее 500 символов",
 		})
 	}
 
@@ -330,10 +321,7 @@ func (s *apiServer) updateProfile(c *fiber.Ctx) error {
 		})
 	}
 	if err != nil {
-		log.Printf("update profile in PostgreSQL: %v", err)
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Не удалось сохранить профиль",
-		})
+		return databaseErrorResponse(c, err, "update profile in PostgreSQL", "Не удалось сохранить профиль")
 	}
 
 	return c.JSON(fiber.Map{

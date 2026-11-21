@@ -1,25 +1,680 @@
 {
-  "id": "day_001",
-  "date": "2026-11-20",
-  "folderTitle": "Тёплый вечер после дождя",
-  "text": "Текст записи о дне...",
-  "photoUri": "file:///example/photo.jpg",
-  "track": {
-    "id": 123,
-    "title": "Sample Track",
-    "artist": "Sample Artist",
-    "previewUrl": "https://example.com/preview.mp3",
-    "genre": "Jazz",
-    "artworkUrl": "https://example.com/artwork.jpg",
-    "trackUrl": "https://music.apple.com/",
-    "energy": 0.35
+  "openapi": "3.1.0",
+  "info": {
+    "title": "KeepMemory API",
+    "version": "1.0.0",
+    "description": "REST API приложения KeepMemory. Записи и профили требуют JWT в заголовке Authorization: Bearer <token>."
   },
-  "style": {
-    "palette": ["#181B24", "#E89B4B", "#F2EDE4"],
-    "grainIntensity": 0.45,
-    "artStyle": "analog_film",
-    "motionSpeed": 0.5,
-    "typographyVariant": "serif_editorial"
+  "servers": [
+    {
+      "url": "http://localhost:8080",
+      "description": "Локальный сервер разработки"
+    }
+  ],
+  "tags": [
+    { "name": "System" },
+    { "name": "Authentication" },
+    { "name": "Profile" },
+    { "name": "Days" },
+    { "name": "Tracks" },
+    { "name": "Media" },
+    { "name": "Backup" }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": ["System"],
+        "summary": "Проверить состояние API",
+        "responses": {
+          "200": {
+            "description": "API запущен",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Health" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "tags": ["System"],
+        "summary": "Проверить готовность API и PostgreSQL",
+        "responses": {
+          "200": { "description": "Сервис готов" },
+          "503": { "description": "База данных временно недоступна" }
+        }
+      }
+    },
+    "/api/auth/register": {
+      "post": {
+        "tags": ["Authentication"],
+        "summary": "Создать аккаунт",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/RegisterRequest" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Аккаунт создан и возвращён токен",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AuthResponse" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "409": { "$ref": "#/components/responses/Conflict" },
+          "500": { "$ref": "#/components/responses/ServerError" }
+        }
+      }
+    },
+    "/api/auth/login": {
+      "post": {
+        "tags": ["Authentication"],
+        "summary": "Войти в аккаунт",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/LoginRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Вход выполнен",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AuthResponse" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "500": { "$ref": "#/components/responses/ServerError" }
+        }
+      }
+    },
+    "/api/profile": {
+      "get": {
+        "tags": ["Profile"],
+        "summary": "Получить профиль текущего пользователя",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Профиль пользователя",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/UserResponse" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "500": { "$ref": "#/components/responses/ServerError" }
+        }
+      },
+      "patch": {
+        "tags": ["Profile"],
+        "summary": "Изменить профиль текущего пользователя",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ProfileUpdate" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Обновлённый профиль",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/UserResponse" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "500": { "$ref": "#/components/responses/ServerError" }
+        }
+      }
+    },
+    "/api/days": {
+      "get": {
+        "tags": ["Days"],
+        "summary": "Получить записи текущего пользователя",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "mood",
+            "in": "query",
+            "required": false,
+            "description": "Фильтр по mood; значение all отключает фильтр.",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "description": "Подстрока для поиска по названию, тексту, дате и данным трека.",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Список записей, от новых к старым",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/DaysResponse" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "500": { "$ref": "#/components/responses/ServerError" }
+        }
+      },
+      "post": {
+        "tags": ["Days"],
+        "summary": "Создать запись дня",
+        "description": "Текст должен содержать не менее 10 символов; требуется минимум одна фотография и трек либо songQuery. Для загрузки файлов используйте multipart/form-data. Принимаются JPEG/PNG/WebP/HEIC до 15 MiB каждый; общий лимит тела запроса — 35 MiB. allowCloudAI включает отправку перечисленных текстовых данных в Gemini только после явного согласия пользователя.",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreateDayJsonRequest" }
+            },
+            "multipart/form-data": {
+              "schema": { "$ref": "#/components/schemas/CreateDayMultipartRequest" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Запись создана",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/DayResponse" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "422": {
+            "description": "Трек не удалось разрешить",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "413": { "description": "Превышен лимит размера или количества изображений" },
+          "503": { "description": "Сервис музыки временно недоступен" },
+          "500": { "$ref": "#/components/responses/ServerError" }
+        }
+      }
+    },
+    "/api/days/{id}": {
+      "get": {
+        "tags": ["Days"],
+        "summary": "Получить запись текущего пользователя",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Запись",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/DayResponse" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "500": { "$ref": "#/components/responses/ServerError" }
+        }
+      },
+      "delete": {
+        "tags": ["Days"],
+        "summary": "Удалить запись текущего пользователя",
+        "description": "Удаляет запись и принадлежащие ей файлы, если другие записи их не используют.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Запись удалена",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["deleted"],
+                  "properties": {
+                    "deleted": { "type": "boolean", "const": true },
+                    "warning": { "type": "string" }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "503": { "description": "Хранилище временно недоступно" }
+        }
+      }
+    },
+    "/api/backup": {
+      "get": {
+        "tags": ["Backup"],
+        "summary": "Скачать ZIP-резервную копию пользовательских данных",
+        "description": "ZIP содержит manifest.json и доступные фотографии. Ограничение — 5000 записей и 100 MiB фото; это ручной экспорт, не автоматический бэкап.",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Архив пользователя",
+            "content": {
+              "application/zip": {
+                "schema": { "type": "string", "format": "binary" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "413": { "description": "Архив превышает ограничения" },
+          "503": { "description": "Хранилище временно недоступно" }
+        }
+      }
+    },
+    "/api/tracks/search": {
+      "get": {
+        "tags": ["Tracks"],
+        "summary": "Найти треки с доступным preview",
+        "description": "Поиск выполняется через iTunes Search API для магазина US; ответ содержит не более 10 треков с previewUrl.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string", "minLength": 2, "maxLength": 200 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Результаты поиска",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/TracksResponse" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "502": {
+            "description": "Сервис iTunes недоступен",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "503": { "description": "Поиск временно недоступен после ограниченных повторов" }
+        }
+      }
+    },
+    "/api/media/{owner}/{filename}": {
+      "get": {
+        "tags": ["Media"],
+        "summary": "Получить фотографию по короткоживущей подписанной ссылке",
+        "description": "Ссылка подписана HMAC на 24 часа, привязана к владельцу и доступна только если его запись ссылается на файл. Bearer JWT не требуется.",
+        "parameters": [
+          {
+            "name": "owner",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "filename",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "user",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "expires",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "integer", "format": "int64" }
+          },
+          {
+            "name": "signature",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Содержимое файла",
+            "content": {
+              "image/*": {
+                "schema": { "type": "string", "format": "binary" }
+              }
+            }
+          },
+          "404": { "description": "Файл не найден или ссылка недействительна" },
+          "503": { "description": "Хранилище временно недоступно" }
+        }
+      }
+    }
   },
-  "createdAt": "2026-11-20T16:30:00Z"
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "Некорректный запрос",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/Error" }
+          }
+        }
+      },
+      "Unauthorized": {
+        "description": "Требуется действительный токен",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/Error" }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "Профиль или запись не найдены",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/Error" }
+          }
+        }
+      },
+      "Conflict": {
+        "description": "Аккаунт с таким email уже существует",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/Error" }
+          }
+        }
+      },
+      "ServerError": {
+        "description": "Внутренняя ошибка сервера",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/Error" }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "Health": {
+        "type": "object",
+        "required": ["app", "status", "aiEnabled"],
+        "properties": {
+          "app": { "type": "string", "const": "KeepMemory" },
+          "status": { "type": "string", "const": "ok" },
+          "aiEnabled": { "type": "boolean" }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "required": ["error"],
+        "properties": {
+          "error": { "type": "string" }
+        }
+      },
+      "RegisterRequest": {
+        "type": "object",
+        "required": ["name", "email", "password"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "email": { "type": "string", "minLength": 1 },
+          "password": { "type": "string", "minLength": 8 }
+        }
+      },
+      "LoginRequest": {
+        "type": "object",
+        "required": ["email", "password"],
+        "properties": {
+          "email": { "type": "string" },
+          "password": { "type": "string" }
+        }
+      },
+      "User": {
+        "type": "object",
+        "required": ["id", "email", "displayName", "handle", "bio", "createdAt"],
+        "properties": {
+          "id": { "type": "string" },
+          "email": { "type": "string" },
+          "displayName": { "type": "string" },
+          "handle": { "type": "string" },
+          "bio": { "type": "string" },
+          "createdAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "AuthResponse": {
+        "type": "object",
+        "required": ["token", "tokenType", "user"],
+        "properties": {
+          "token": { "type": "string" },
+          "tokenType": { "type": "string", "const": "Bearer" },
+          "user": { "$ref": "#/components/schemas/User" }
+        }
+      },
+      "UserResponse": {
+        "type": "object",
+        "required": ["user"],
+        "properties": {
+          "user": { "$ref": "#/components/schemas/User" }
+        }
+      },
+      "ProfileUpdate": {
+        "type": "object",
+        "required": ["displayName", "handle"],
+        "properties": {
+          "displayName": { "type": "string", "minLength": 1 },
+          "handle": { "type": "string", "minLength": 1 },
+          "bio": { "type": "string", "maxLength": 500 }
+        }
+      },
+      "Track": {
+        "type": "object",
+        "required": ["id", "title", "artist", "previewUrl", "genre", "artworkUrl", "trackUrl", "energy"],
+        "properties": {
+          "id": { "type": "integer", "format": "int64" },
+          "title": { "type": "string" },
+          "artist": { "type": "string" },
+          "previewUrl": { "type": "string" },
+          "genre": { "type": "string" },
+          "artworkUrl": { "type": "string" },
+          "trackUrl": { "type": "string" },
+          "energy": { "type": "number" }
+        }
+      },
+      "TrackInput": {
+        "type": "object",
+        "required": ["title"],
+        "properties": {
+          "id": { "type": "integer", "format": "int64" },
+          "title": { "type": "string", "minLength": 1 },
+          "artist": { "type": "string" },
+          "previewUrl": { "type": "string" },
+          "genre": { "type": "string" },
+          "artworkUrl": { "type": "string" },
+          "trackUrl": { "type": "string" },
+          "energy": { "type": "number" }
+        }
+      },
+      "StyleRecipe": {
+        "type": "object",
+        "required": ["palette", "grainIntensity", "artStyle", "motionSpeed", "typographyVariant"],
+        "properties": {
+          "palette": {
+            "type": "array",
+            "items": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" },
+            "minItems": 3,
+            "maxItems": 3,
+            "description": "Три оттенка: фон, акцент и светлый цвет текста."
+          },
+          "grainIntensity": { "type": "number" },
+          "artStyle": {
+            "type": "string",
+            "enum": ["analog_film", "minimal_editorial", "dreamy_aura", "kinetic_zine"]
+          },
+          "motionSpeed": { "type": "number" },
+          "typographyVariant": {
+            "type": "string",
+            "enum": ["serif_editorial", "mono_archive"]
+          },
+          "atmosphereNote": { "type": "string" },
+          "mood": {
+            "type": "string",
+            "enum": ["happy", "warm", "calm", "energetic", "sad"]
+          },
+          "moodLabel": { "type": "string" },
+          "curatorSummary": { "type": "string" },
+          "personalizationNote": { "type": "string" },
+          "aiGenerated": { "type": "boolean" }
+        }
+      },
+      "Day": {
+        "type": "object",
+        "required": ["id", "date", "folderTitle", "text", "photoUri", "track", "style", "createdAt"],
+        "properties": {
+          "id": { "type": "string" },
+          "date": { "type": "string", "format": "date" },
+          "folderTitle": { "type": "string" },
+          "text": { "type": "string" },
+          "photoUri": { "type": "string", "description": "Обложка; у локального фото API возвращает краткоживущую подписанную ссылку /api/media/..." },
+          "photoUris": {
+            "type": "array",
+            "items": { "type": "string" },
+            "maxItems": 6
+          },
+          "mood": {
+            "type": "string",
+            "enum": ["happy", "warm", "calm", "energetic", "sad"]
+          },
+          "track": { "$ref": "#/components/schemas/Track" },
+          "style": { "$ref": "#/components/schemas/StyleRecipe" },
+          "createdAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "DayResponse": {
+        "type": "object",
+        "required": ["day"],
+        "properties": {
+          "day": { "$ref": "#/components/schemas/Day" }
+        }
+      },
+      "DaysResponse": {
+        "type": "object",
+        "required": ["days"],
+        "properties": {
+          "days": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Day" }
+          }
+        }
+      },
+      "TracksResponse": {
+        "type": "object",
+        "required": ["tracks"],
+        "properties": {
+          "tracks": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Track" }
+          }
+        }
+      },
+      "CreateDayJsonRequest": {
+        "type": "object",
+        "required": ["text"],
+        "properties": {
+          "text": { "type": "string", "minLength": 10, "maxLength": 4000 },
+          "photoUri": { "type": "string", "description": "Ссылка на внешнее изображение; внутренние /uploads и /api/media не принимаются." },
+          "photoUris": {
+            "type": "array",
+            "items": { "type": "string" },
+            "maxItems": 6
+          },
+          "track": { "$ref": "#/components/schemas/TrackInput" },
+          "songQuery": { "type": "string" },
+          "allowCloudAI": {
+            "type": "boolean",
+            "default": false,
+            "description": "Явное согласие на обработку текста и части данных профиля внешней моделью Gemini."
+          }
+        },
+        "description": "Нужны photoUri или photoUris, а также track или songQuery."
+      },
+      "CreateDayMultipartRequest": {
+        "type": "object",
+        "required": ["text", "track"],
+        "properties": {
+          "text": { "type": "string", "minLength": 10, "maxLength": 4000 },
+          "track": {
+            "type": "string",
+            "description": "JSON-сериализованный объект TrackInput."
+          },
+          "photo": {
+            "type": "string",
+            "format": "binary",
+            "description": "Обложка альбома; можно передать файл в photos."
+          },
+          "photos": {
+            "type": "array",
+            "items": { "type": "string", "format": "binary" },
+            "maxItems": 6,
+            "description": "Один или несколько кадров альбома."
+          },
+          "allowCloudAI": {
+            "type": "boolean",
+            "default": false,
+            "description": "Явное согласие на обработку текста и части данных профиля внешней моделью Gemini."
+          }
+        },
+        "description": "Требуются track (JSON-строка с объектом трека) и минимум один файл в photo/photos. songQuery поддерживается только в JSON-запросе."
+      }
+    }
+  }
 }

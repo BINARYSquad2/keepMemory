@@ -1,10 +1,12 @@
 export type ArtStyle =
   | 'analog_film'       // Тёплая плёнка: засветка, виньетка, живое зерно
-  | 'minimal_editorial' // Выставочный постер: тонкая сетка, кинетический маркер ритма
-  | 'dreamy_aura'       // Эфирная аура: мягкие плавающие ореолы света и туман
-  | 'kinetic_zine';     // ArtTech-зин: диагональные световые лучи, высокий контраст, быстрый пульс
+  | 'minimal_editorial' // Выставочная сетка: воздух, геометрия, спокойный фокус
+  | 'dreamy_aura'       // Свет и аура: мягкие плавающие ореолы света и дымка
+  | 'kinetic_zine';     // Кинетика и ритм: диагональные линии, высокий контраст, динамика
 
 export type TypographyVariant = 'serif_editorial' | 'mono_archive';
+
+export type MoodCategory = 'happy' | 'warm' | 'calm' | 'energetic' | 'sad';
 
 export interface TrackInfo {
   id: number;
@@ -23,17 +25,23 @@ export interface StyleRecipe {
   artStyle: ArtStyle;
   motionSpeed: number;               // 0.2 - 2.0 (темп/энергия трека)
   typographyVariant: TypographyVariant;
-  atmosphereNote?: string;           // Краткое пояснение приёма (для пользователя и жюри)
+  atmosphereNote?: string;           // Короткая подпись на открытке
+  mood?: MoodCategory;               // Категория настроения для фильтрации
+  moodLabel?: string;                // Естественный тег настроения от ИИ
+  curatorSummary?: string;           // Персональное объяснение оформления от ИИ
+  personalizationNote?: string;      // Как описание профиля повлияло на результат
+  aiGenerated?: boolean;             // Флаг, что рецепт собран ИИ-моделью
 }
 
 export interface MemoryDay {
   id: string;
   createdAt: string;
   date: string;
-  folderTitle: string; // 3-7 слов
+  folderTitle: string;               // Короткое название папки (3–7 слов)
   text: string;
   photoUri: string;
-  photoUris?: string[]; // Полный альбом дня (1–6 кадров)
+  photoUris?: string[];              // Полный альбом дня (1–6 кадров)
+  mood?: MoodCategory;
   track: TrackInfo;
   style: StyleRecipe;
 }

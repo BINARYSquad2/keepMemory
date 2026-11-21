@@ -2,7 +2,8 @@ import React, { useCallback, useMemo, useState } from 'react';
 import {
   View,
   Text,
-  FlatList,
+  TextInput,
+  SectionList,
   ScrollView,
   TouchableOpacity,
   Image,
@@ -10,23 +11,214 @@ import {
   ActivityIndicator,
   RefreshControl,
 } from 'react-native';
-import { Href, useFocusEffect, useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { ApiError, getDays, getErrorMessage, hasAuthToken } from '../../services/api';
 import {
-  ArtStyle,
-  formatMemoryDate,
   getMemoryPhotos,
   MemoryDay,
 } from '../../types/memory';
 import { ART_STYLE_META } from '../../constants/artStyles';
-import { analyzeDayAtmosphere } from '../../services/atmosphereInterpreter';
+import {
+  analyzeDayAtmosphere,
+  DayAtmosphereReading,
+} from '../../services/atmosphereInterpreter';
 import { THEME } from '../../constants/theme';
+
+type MoodFilter = 'all' | 'happy' | 'warm' | 'calm' | 'energetic' | 'sad';
+
+const MOOD_FILTERS: Array<{ key: MoodFilter; label: string }> = [
+  { key: 'all', label: 'Все' },
+  { key: 'happy', label: 'Весёлое' },
+  { key: 'warm', label: 'Тёплое' },
+  { key: 'calm', label: 'Спокойное' },
+  { key: 'energetic', label: 'Энергичное' },
+  { key: 'sad', label: 'Грустное' },
+];
+
+const MOOD_LABELS: Record<Exclude<MoodFilter, 'all'>, string> = {
+  happy: 'Весёлое',
+  warm: 'Тёплое',
+  calm: 'Спокойное',
+  energetic: 'Энергичное',
+  sad: 'Грустное',
+};
+
+interface EnrichedDay {
+  day: MemoryDay;
+  photosCount: number;
+  atmosphere: DayAtmosphereReading;
+  mood: Exclude<MoodFilter, 'all'>;
+  searchable: string;
+}
+
+interface WeekSection {
+  key: string;
+  title: string;
+  rangeLabel: string;
+  data: EnrichedDay[];
+}
+
+function parseLocalDate(value: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value?.trim() ?? '');
+  if (!match) {
+    const fallback = new Date(value);
+    return Number.isNaN(fallback.getTime()) ? null : fallback;
+  }
+  const year = Number(match[1]);
+  const month = Number(match[2]) - 1;
+  const day = Number(match[3]);
+  const parsed = new Date(year, month, day);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function startOfWeekMonday(date: Date): Date {
+  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const dayOfWeek = (d.getDay() + 6) % 7; // Пн = 0, Вс = 6
+  d.setDate(d.getDate() - dayOfWeek);
+  return d;
+}
+
+function formatWeekRange(monday: Date): string {
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  const nowYear = new Date().getFullYear();
+
+  const sameMonth =
+    monday.getMonth() === sunday.getMonth() &&
+    monday.getFullYear() === sunday.getFullYear();
+
+  const startDay = monday.getDate();
+  const endDay = sunday.getDate();
+
+  if (sameMonth) {
+    const monthName = sunday.toLocaleDateString('ru-RU', { month: 'long' });
+    const yearSuffix = sunday.getFullYear() !== nowYear ? ` ${sunday.getFullYear()}` : '';
+    return `${startDay}–${endDay} ${monthName}${yearSuffix}`;
+  }
+
+  const startMonth = monday.toLocaleDateString('ru-RU', { month: 'short' }).replace('.', '');
+  const endMonth = sunday.toLocaleDateString('ru-RU', { month: 'short' }).replace('.', '');
+  const yearSuffix = sunday.getFullYear() !== nowYear ? ` ${sunday.getFullYear()}` : '';
+  return `${startDay} ${startMonth} – ${endDay} ${endMonth}${yearSuffix}`;
+}
+
+function getWeekBucket(dateStr: string): { key: string; title: string; rangeLabel: string; sortKey: number } {
+  const date = parseLocalDate(dateStr);
+  if (!date) {
+    return { key: 'unknown', title: 'Без даты', rangeLabel: '', sortKey: 0 };
+  }
+
+  const monday = startOfWeekMonday(date);
+  const currentMonday = startOfWeekMonday(new Date());
+  const diffDays = Math.round(
+    (currentMonday.getTime() - monday.getTime()) / (1000 * 60 * 60 * 24)
+  );
+
+  const rangeLabel = formatWeekRange(monday);
+  const key = `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, '0')}-${String(
+    monday.getDate()
+  ).padStart(2, '0')}`;
+
+  if (diffDays === 0) {
+    return { key, title: 'Эта неделя', rangeLabel, sortKey: monday.getTime() };
+  }
+  if (diffDays === 7) {
+    return { key, title: 'Прошлая неделя', rangeLabel, sortKey: monday.getTime() };
+  }
+  return {
+    key,
+    title: rangeLabel.charAt(0).toUpperCase() + rangeLabel.slice(1),
+    rangeLabel: '',
+    sortKey: monday.getTime(),
+  };
+}
+
+function formatCardDate(value: string): string {
+  const date = parseLocalDate(value);
+  if (!date) return value;
+
+  const formatted = date.toLocaleDateString('ru-RU', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+  });
+  return formatted.charAt(0).toUpperCase() + formatted.slice(1);
+}
+
+function classifyMood(
+  day: MemoryDay,
+  atmosphere: DayAtmosphereReading
+): Exclude<MoodFilter, 'all'> {
+  // Поддержка будущего поля mood от ИИ на бэкенде
+  const serverMood = (day as MemoryDay & { mood?: string }).mood?.toLowerCase();
+  if (
+    serverMood === 'happy' ||
+    serverMood === 'warm' ||
+    serverMood === 'calm' ||
+    serverMood === 'energetic' ||
+    serverMood === 'sad'
+  ) {
+    return serverMood;
+  }
+
+  const combined = `${day.text} ${day.folderTitle}`.toLowerCase();
+  const badge = atmosphere.moodBadge.toUpperCase();
+  const energy = day.track.energy ?? 0.5;
+
+  if (
+    /груст|тоск|плак|тяжел|тяжёл|устал|один|пуст|боль|печал|дожд|пасмур/.test(combined) ||
+    badge.includes('МЕЛАНХОЛИЯ') ||
+    badge.includes('ТИХАЯ ПАУЗА')
+  ) {
+    return 'sad';
+  }
+
+  if (
+    /радост|счаст|смех|смея|весел|весё|праздн|улыб|круто|восторг|побед|друз/.test(combined) ||
+    badge.includes('ЖИВОЕ ПРИСУТСТВИЕ') ||
+    badge.includes('УТРЕННЯЯ ЯСНОСТЬ')
+  ) {
+    return 'happy';
+  }
+
+  if (
+    /драйв|бег|спорт|тренир|концерт|танц|дедлайн|сдач|проект|офис|код|срочн|энерг/.test(combined) ||
+    badge.includes('ДРАЙВ') ||
+    badge.includes('ФОКУС') ||
+    badge.includes('ИМПУЛЬС') ||
+    day.style.artStyle === 'kinetic_zine' ||
+    energy >= 0.72
+  ) {
+    return 'energetic';
+  }
+
+  if (
+    /какао|кофе|чай|уют|тепл|тёпл|дом|прогул|гуля|парк|обнят|разговор|девушк|семь/.test(combined) ||
+    badge.includes('УЮТ') ||
+    badge.includes('ТЁПЛОЕ') ||
+    badge.includes('ПРОГУЛКИ') ||
+    day.style.artStyle === 'analog_film'
+  ) {
+    return 'warm';
+  }
+
+  return 'calm';
+}
+
+function pluralDays(count: number): string {
+  const mod10 = count % 10;
+  const mod100 = count % 100;
+  if (mod10 === 1 && mod100 !== 11) return `${count} запись`;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return `${count} записи`;
+  return `${count} записей`;
+}
 
 export default function ArchiveScreen() {
   const router = useRouter();
   const [items, setItems] = useState<MemoryDay[]>([]);
-  const [selectedStyle, setSelectedStyle] = useState<ArtStyle | 'all'>('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedMood, setSelectedMood] = useState<MoodFilter>('all');
   const [loading, setLoading] = useState(true);
   const [needsAuth, setNeedsAuth] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -59,97 +251,151 @@ export default function ArchiveScreen() {
     }, [loadDays])
   );
 
-  const availableStyles = useMemo(() => {
-    const set = new Set<ArtStyle>();
-    items.forEach((d) => set.add(d.style.artStyle));
-    return Array.from(set);
+  const enrichedItems = useMemo<EnrichedDay[]>(() => {
+    return items.map((day) => {
+      const atmosphere = analyzeDayAtmosphere(day);
+      const mood = classifyMood(day, atmosphere);
+      const photosCount = Math.max(1, getMemoryPhotos(day).length);
+      const searchable = [
+        day.folderTitle,
+        day.text,
+        day.track.title,
+        day.track.artist,
+        day.track.genre,
+        day.date,
+        formatCardDate(day.date),
+        MOOD_LABELS[mood],
+        atmosphere.moodBadge,
+      ]
+        .join(' ')
+        .toLowerCase();
+
+      return { day, photosCount, atmosphere, mood, searchable };
+    });
   }, [items]);
 
-  const totalPhotos = useMemo(
-    () => items.reduce((sum, day) => sum + Math.max(1, getMemoryPhotos(day).length), 0),
-    [items]
-  );
+  const moodCounts = useMemo(() => {
+    const counts: Record<MoodFilter, number> = {
+      all: enrichedItems.length,
+      happy: 0,
+      warm: 0,
+      calm: 0,
+      energetic: 0,
+      sad: 0,
+    };
+    enrichedItems.forEach((entry) => {
+      counts[entry.mood] += 1;
+    });
+    return counts;
+  }, [enrichedItems]);
 
   const filteredItems = useMemo(() => {
-    if (selectedStyle === 'all') return items;
-    return items.filter((d) => d.style.artStyle === selectedStyle);
-  }, [items, selectedStyle]);
+    const query = searchQuery.trim().toLowerCase();
+    return enrichedItems.filter((entry) => {
+      if (selectedMood !== 'all' && entry.mood !== selectedMood) {
+        return false;
+      }
+      if (query && !entry.searchable.includes(query)) {
+        return false;
+      }
+      return true;
+    });
+  }, [enrichedItems, selectedMood, searchQuery]);
 
-  const renderFolder = ({ item, index }: { item: MemoryDay; index: number }) => {
+  const sections = useMemo<WeekSection[]>(() => {
+    const map = new Map<string, WeekSection & { sortKey: number }>();
+
+    filteredItems.forEach((entry) => {
+      const bucket = getWeekBucket(entry.day.date);
+      const existing = map.get(bucket.key);
+      if (existing) {
+        existing.data.push(entry);
+      } else {
+        map.set(bucket.key, {
+          key: bucket.key,
+          title: bucket.title,
+          rangeLabel: bucket.rangeLabel,
+          sortKey: bucket.sortKey,
+          data: [entry],
+        });
+      }
+    });
+
+    return Array.from(map.values())
+      .sort((a, b) => b.sortKey - a.sortKey)
+      .map(({ sortKey: _s, ...section }) => ({
+        ...section,
+        data: [...section.data].sort((a, b) =>
+          (b.day.date || b.day.createdAt).localeCompare(a.day.date || a.day.createdAt)
+        ),
+      }));
+  }, [filteredItems]);
+
+  const hasActiveFilters = selectedMood !== 'all' || searchQuery.trim().length > 0;
+
+  const renderFolder = ({ item }: { item: EnrichedDay }) => {
+    const { day, photosCount, atmosphere, mood } = item;
     const [
       bgCol = THEME.colors.bg,
       accentCol = THEME.colors.accent,
       lightCol = THEME.colors.text,
-    ] = item.style.palette ?? [];
-    const folderNum = String(filteredItems.length - index).padStart(2, '0');
-    const isSerif = item.style.typographyVariant === 'serif_editorial';
-    const modeMeta = ART_STYLE_META[item.style.artStyle] ?? ART_STYLE_META.analog_film;
-    const photos = getMemoryPhotos(item);
-    const atmosphere = analyzeDayAtmosphere(item);
+    ] = day.style.palette ?? [];
+    const isSerif = day.style.typographyVariant === 'serif_editorial';
+    const modeMeta = ART_STYLE_META[day.style.artStyle] ?? ART_STYLE_META.analog_film;
 
     return (
       <TouchableOpacity
-        activeOpacity={0.86}
-        onPress={() => router.push(`/memory/${item.id}`)}
+        activeOpacity={0.88}
+        onPress={() => router.push(`/memory/${day.id}`)}
         style={[
-          styles.exhibitCard,
-          { backgroundColor: bgCol, borderColor: 'rgba(255,255,255,0.14)' },
+          styles.card,
+          { backgroundColor: bgCol, borderColor: 'rgba(255,255,255,0.12)' },
         ]}
       >
-        {/* Атмосферная обложка дня */}
         <View style={styles.coverWrap}>
-          {item.photoUri ? (
-            <Image source={{ uri: item.photoUri }} style={styles.coverImage} />
+          {day.photoUri ? (
+            <Image source={{ uri: day.photoUri }} style={styles.coverImage} />
           ) : null}
           <View style={[styles.coverTint, { backgroundColor: accentCol }]} />
           <View style={[styles.coverShade, { backgroundColor: bgCol }]} />
 
-          {/* Верхний ряд: дата + счётчик альбома + палитра */}
           <View style={styles.coverTopRow}>
-            <View style={styles.dirPill}>
-              <View style={[styles.dirDot, { backgroundColor: accentCol }]} />
-              <Text style={styles.dirText}>
-                #{folderNum} · {formatMemoryDate(item.date)}
-              </Text>
+            <View style={styles.datePill}>
+              <View style={[styles.dateDot, { backgroundColor: accentCol }]} />
+              <Text style={styles.dateText}>{formatCardDate(day.date)}</Text>
             </View>
 
             <View style={styles.coverRightPills}>
-              {photos.length > 1 ? (
-                <View style={styles.albumCountPill}>
-                  <Ionicons name="images-outline" size={11} color={lightCol} />
-                  <Text style={[styles.albumCountText, { color: lightCol }]}>
-                    {photos.length}
+              {photosCount > 1 ? (
+                <View style={styles.albumPill}>
+                  <Ionicons name="images-outline" size={12} color={lightCol} />
+                  <Text style={[styles.albumPillText, { color: lightCol }]}>
+                    {photosCount}
                   </Text>
                 </View>
               ) : null}
               <View style={styles.paletteStrip}>
-                {(item.style.palette ?? []).map((hex, i) => (
+                {(day.style.palette ?? []).map((hex, i) => (
                   <View key={`${hex}-${i}`} style={[styles.swatch, { backgroundColor: hex }]} />
                 ))}
               </View>
             </View>
           </View>
 
-          {/* Нижний ряд поверх обложки: трек + тег настроения */}
-          <View style={styles.coverBottomRow}>
-            <View style={styles.trackPill}>
-              <Ionicons name="musical-notes" size={12} color={accentCol} />
-              <Text style={[styles.trackPillText, { color: lightCol }]} numberOfLines={1}>
-                {item.track.artist} — {item.track.title}
-              </Text>
-            </View>
+          <View style={styles.trackPill}>
+            <Ionicons name="musical-notes" size={12} color={accentCol} />
+            <Text style={[styles.trackPillText, { color: lightCol }]} numberOfLines={1}>
+              {day.track.artist} — {day.track.title}
+            </Text>
           </View>
         </View>
 
-        {/* Инфо-блок папки */}
-        <View style={styles.cardFooter}>
-          <View style={styles.moodTagRow}>
-            <Text style={[styles.moodTagText, { color: accentCol }]}>
-              {atmosphere.moodBadge}
+        <View style={styles.cardBody}>
+          <View style={styles.metaRow}>
+            <Text style={[styles.moodLabel, { color: accentCol }]}>
+              {MOOD_LABELS[mood]}
             </Text>
-            <Text style={styles.modeMiniCode}>
-              {modeMeta.code} // {modeMeta.shortTitle.toUpperCase()}
-            </Text>
+            <Text style={styles.styleLabel}>{modeMeta.shortTitle}</Text>
           </View>
 
           <Text
@@ -160,20 +406,20 @@ export default function ArchiveScreen() {
             ]}
             numberOfLines={2}
           >
-            {item.folderTitle}
+            {day.folderTitle}
           </Text>
 
-          <Text style={styles.snippet} numberOfLines={2}>
+          <Text style={styles.caption} numberOfLines={2}>
             {atmosphere.cardCaption}
           </Text>
 
-          <View style={styles.cardBottomMeta}>
-            <Text style={styles.snippetTextPreview} numberOfLines={1}>
-              «{item.text}»
+          <View style={styles.cardFooter}>
+            <Text style={styles.excerpt} numberOfLines={1}>
+              {day.text}
             </Text>
-            <View style={styles.openHint}>
-              <Text style={[styles.openHintText, { color: accentCol }]}>Открыть</Text>
-              <Ionicons name="arrow-forward" size={13} color={accentCol} />
+            <View style={styles.openRow}>
+              <Text style={[styles.openText, { color: accentCol }]}>Открыть</Text>
+              <Ionicons name="arrow-forward" size={14} color={accentCol} />
             </View>
           </View>
         </View>
@@ -183,12 +429,25 @@ export default function ArchiveScreen() {
 
   return (
     <View style={styles.container}>
-      <FlatList
-        data={filteredItems}
-        keyExtractor={(item) => item.id}
+      <SectionList
+        sections={sections}
+        keyExtractor={(entry) => entry.day.id}
         renderItem={renderFolder}
+        renderSectionHeader={({ section }) => (
+          <View style={styles.weekHeader}>
+            <View style={styles.weekTitleWrap}>
+              <Text style={styles.weekTitle}>{section.title}</Text>
+              {section.rangeLabel ? (
+                <Text style={styles.weekRange}>{section.rangeLabel}</Text>
+              ) : null}
+            </View>
+            <Text style={styles.weekCount}>{pluralDays(section.data.length)}</Text>
+          </View>
+        )}
+        stickySectionHeadersEnabled={false}
         contentContainerStyle={styles.list}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
         refreshControl={
           <RefreshControl
             refreshing={loading}
@@ -196,21 +455,103 @@ export default function ArchiveScreen() {
             tintColor={THEME.colors.accent}
           />
         }
+        ListHeaderComponent={
+          <View style={styles.headerBlock}>
+            <View style={styles.titleBlock}>
+              <Text style={styles.pageTitle}>Дневник дней</Text>
+              <Text style={styles.pageSubtitle}>
+                {items.length > 0
+                  ? `${pluralDays(items.length)} в вашем архиве`
+                  : 'Сохраняйте настроение дня через слова, фото и музыку'}
+              </Text>
+            </View>
+
+            {/* Поиск и фильтрация по эмоциям */}
+            {items.length > 0 ? (
+              <View style={styles.controlsBlock}>
+                <View style={styles.searchWrap}>
+                  <Ionicons name="search-outline" size={17} color={THEME.colors.textMuted} />
+                  <TextInput
+                    style={styles.searchInput}
+                    placeholder="Поиск по записям, названиям, песням…"
+                    placeholderTextColor={THEME.colors.textDim}
+                    value={searchQuery}
+                    onChangeText={setSearchQuery}
+                    returnKeyType="search"
+                  />
+                  {searchQuery.length > 0 ? (
+                    <TouchableOpacity
+                      onPress={() => setSearchQuery('')}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Ionicons name="close-circle" size={17} color={THEME.colors.textDim} />
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.moodRow}
+                >
+                  {MOOD_FILTERS.map((filter) => {
+                    const active = selectedMood === filter.key;
+                    const count = moodCounts[filter.key];
+                    return (
+                      <TouchableOpacity
+                        key={filter.key}
+                        onPress={() => setSelectedMood(filter.key)}
+                        activeOpacity={0.8}
+                        style={[styles.moodChip, active && styles.moodChipActive]}
+                      >
+                        <Text
+                          style={[
+                            styles.moodChipText,
+                            active && styles.moodChipTextActive,
+                          ]}
+                        >
+                          {filter.label}
+                          {count > 0 ? ` · ${count}` : ''}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+
+                {hasActiveFilters ? (
+                  <View style={styles.filterSummaryRow}>
+                    <Text style={styles.filterSummaryText}>
+                      Показано: {pluralDays(filteredItems.length)}
+                    </Text>
+                    <TouchableOpacity
+                      onPress={() => {
+                        setSearchQuery('');
+                        setSelectedMood('all');
+                      }}
+                    >
+                      <Text style={styles.resetFilterText}>Сбросить</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : null}
+              </View>
+            ) : null}
+          </View>
+        }
         ListEmptyComponent={
           <View style={styles.emptyState}>
             {loading ? (
               <ActivityIndicator color={THEME.colors.accent} />
             ) : needsAuth ? (
               <>
-                <Text style={styles.emptyTitle}>Войди в личный дневник</Text>
+                <Text style={styles.emptyTitle}>Войдите в свой дневник</Text>
                 <Text style={styles.emptyText}>
-                  После входа твои папки дней сохраняются и синхронизируются между устройствами.
+                  После входа все ваши записи и альбомы сохраняются и доступны с любого устройства.
                 </Text>
                 <TouchableOpacity
                   onPress={() => router.push('/auth/login')}
                   style={styles.emptyButton}
                 >
-                  <Text style={styles.emptyButtonText}>ВОЙТИ</Text>
+                  <Text style={styles.emptyButtonText}>Войти</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   onPress={() => router.push('/auth/register')}
@@ -221,138 +562,42 @@ export default function ArchiveScreen() {
               </>
             ) : error ? (
               <>
-                <Text style={styles.emptyTitle}>Не удалось загрузить галерею</Text>
+                <Text style={styles.emptyTitle}>Не удалось загрузить дневник</Text>
                 <Text style={styles.emptyText}>{error}</Text>
                 <TouchableOpacity onPress={() => void loadDays()} style={styles.emptyButton}>
-                  <Text style={styles.emptyButtonText}>ПОВТОРИТЬ</Text>
+                  <Text style={styles.emptyButtonText}>Повторить</Text>
                 </TouchableOpacity>
               </>
-            ) : selectedStyle !== 'all' ? (
+            ) : hasActiveFilters ? (
               <>
-                <Text style={styles.emptyTitle}>В этом стиле пока нет дней</Text>
+                <Text style={styles.emptyTitle}>Ничего не нашлось</Text>
+                <Text style={styles.emptyText}>
+                  Попробуйте изменить запрос или выбрать другое настроение.
+                </Text>
                 <TouchableOpacity
-                  onPress={() => setSelectedStyle('all')}
+                  onPress={() => {
+                    setSearchQuery('');
+                    setSelectedMood('all');
+                  }}
                   style={styles.emptyButton}
                 >
-                  <Text style={styles.emptyButtonText}>ПОКАЗАТЬ ВСЕ ДНИ</Text>
+                  <Text style={styles.emptyButtonText}>Показать все записи</Text>
                 </TouchableOpacity>
               </>
             ) : (
               <>
-                <Text style={styles.emptyTitle}>Твой архив ждёт первый день</Text>
+                <Text style={styles.emptyTitle}>Здесь появятся ваши дни</Text>
                 <Text style={styles.emptyText}>
-                  Напиши пару строк, приложи 1–6 фото и песню — система соберёт первую страницу.
+                  Напишите пару строк о сегодняшнем дне, добавьте фото и песню — дневник соберёт первую страницу.
                 </Text>
                 <TouchableOpacity
                   onPress={() => router.push('/(tabs)/create')}
                   style={styles.emptyButton}
                 >
-                  <Text style={styles.emptyButtonText}>ЗАПИСАТЬ ПЕРВЫЙ ДЕНЬ →</Text>
+                  <Text style={styles.emptyButtonText}>Создать первую запись</Text>
                 </TouchableOpacity>
               </>
             )}
-          </View>
-        }
-        ListHeaderComponent={
-          <View style={styles.headerBlock}>
-            {/* Хай-тек галерейный Hero-блок */}
-            <View style={styles.heroCard}>
-              <View style={styles.cornerTL} />
-              <View style={styles.cornerBR} />
-
-              <View style={styles.heroTopRow}>
-                <Text style={styles.heroEyebrow}>• ARCHIVE.EXE // ARTTECH_DIARY</Text>
-                <TouchableOpacity
-                  onPress={() => router.push('/guide' as Href)}
-                  style={styles.guideChip}
-                  activeOpacity={0.8}
-                >
-                  <Ionicons name="compass-outline" size={13} color={THEME.colors.accent} />
-                  <Text style={styles.guideChipText}>Гид</Text>
-                </TouchableOpacity>
-              </View>
-
-              <Text style={styles.heroTitle}>Атмосфера твоих дней_</Text>
-              <Text style={styles.heroSub}>
-                Каждый день собран из текста, альбома фото и саундтрека в единой визуальной системе.
-              </Text>
-
-              {/* Телеметрия архива */}
-              <View style={styles.telemetryStrip}>
-                <View style={styles.telemetryCell}>
-                  <Text style={styles.telemetryNum}>
-                    {String(items.length).padStart(2, '0')}
-                  </Text>
-                  <Text style={styles.telemetryLabel}>ПАПОК</Text>
-                </View>
-                <View style={styles.telemetryDiv} />
-                <View style={styles.telemetryCell}>
-                  <Text style={styles.telemetryNum}>
-                    {String(totalPhotos).padStart(2, '0')}
-                  </Text>
-                  <Text style={styles.telemetryLabel}>КАДРОВ</Text>
-                </View>
-                <View style={styles.telemetryDiv} />
-                <View style={styles.telemetryCell}>
-                  <Text style={styles.telemetryNum}>
-                    {String(availableStyles.length).padStart(2, '0')}/04
-                  </Text>
-                  <Text style={styles.telemetryLabel}>РЕЖИМОВ</Text>
-                </View>
-              </View>
-            </View>
-
-            {/* Фильтр по визуальным режимам */}
-            {availableStyles.length > 1 ? (
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.filterRow}
-              >
-                <TouchableOpacity
-                  onPress={() => setSelectedStyle('all')}
-                  style={[styles.filterChip, selectedStyle === 'all' && styles.filterChipActive]}
-                >
-                  <Text
-                    style={[
-                      styles.filterChipText,
-                      selectedStyle === 'all' && styles.filterChipTextActive,
-                    ]}
-                  >
-                    Все ({items.length})
-                  </Text>
-                </TouchableOpacity>
-                {availableStyles.map((st) => {
-                  const active = selectedStyle === st;
-                  const meta = ART_STYLE_META[st] ?? ART_STYLE_META.analog_film;
-                  return (
-                    <TouchableOpacity
-                      key={st}
-                      onPress={() => setSelectedStyle(st)}
-                      style={[styles.filterChip, active && styles.filterChipActive]}
-                    >
-                      <Text
-                        style={[
-                          styles.filterChipText,
-                          active && styles.filterChipTextActive,
-                        ]}
-                      >
-                        {meta.code} · {meta.shortTitle}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
-            ) : null}
-
-            <View style={styles.sectionDivider}>
-              <Text style={styles.sectionLabel}>
-                01 // СОХРАНЁННЫЕ ПАПКИ ({filteredItems.length})
-              </Text>
-              <TouchableOpacity onPress={() => router.push('/guide' as Href)}>
-                <Text style={styles.sectionGuideLink}>Как работает система →</Text>
-              </TouchableOpacity>
-            </View>
           </View>
         }
       />
@@ -364,158 +609,120 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: THEME.colors.bg },
   list: {
     padding: THEME.spacing.md,
-    gap: 18,
-    paddingBottom: 44,
+    paddingBottom: 48,
   },
-  headerBlock: { gap: 14, marginBottom: 2 },
-  heroCard: {
-    position: 'relative',
-    backgroundColor: THEME.colors.surface,
-    borderWidth: 1,
-    borderColor: THEME.colors.borderStrong,
-    borderRadius: THEME.radius.md,
-    padding: 16,
-    gap: 8,
+  headerBlock: {
+    gap: 16,
+    marginBottom: 8,
   },
-  cornerTL: {
-    position: 'absolute',
-    top: -1,
-    left: -1,
-    width: 14,
-    height: 14,
-    borderTopWidth: 2,
-    borderLeftWidth: 2,
-    borderColor: THEME.colors.accent,
-    borderTopLeftRadius: THEME.radius.md,
+  titleBlock: {
+    gap: 4,
+    paddingTop: 2,
   },
-  cornerBR: {
-    position: 'absolute',
-    bottom: -1,
-    right: -1,
-    width: 14,
-    height: 14,
-    borderBottomWidth: 2,
-    borderRightWidth: 2,
-    borderColor: THEME.colors.warmGold,
-    borderBottomRightRadius: THEME.radius.md,
-  },
-  heroTopRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: 8,
-  },
-  heroEyebrow: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 9,
-    letterSpacing: 1.4,
-    color: THEME.colors.accent,
-  },
-  guideChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    borderWidth: 1,
-    borderColor: THEME.colors.borderStrong,
-    borderRadius: THEME.radius.pill,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    backgroundColor: THEME.colors.surfaceElevated,
-  },
-  guideChipText: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 10,
-    color: THEME.colors.text,
-  },
-  heroTitle: {
+  pageTitle: {
     fontFamily: THEME.fonts.serif,
-    fontSize: 27,
+    fontSize: 30,
     color: THEME.colors.text,
-    lineHeight: 33,
+    lineHeight: 36,
   },
-  heroSub: {
+  pageSubtitle: {
+    fontSize: 13,
     color: THEME.colors.textMuted,
-    fontSize: 12,
-    lineHeight: 18,
+    lineHeight: 19,
   },
-  telemetryStrip: {
+  controlsBlock: {
+    gap: 10,
+  },
+  searchWrap: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: THEME.colors.surfacePanel,
+    gap: 10,
+    backgroundColor: THEME.colors.surface,
     borderWidth: 1,
     borderColor: THEME.colors.border,
-    borderRadius: THEME.radius.sm,
-    paddingVertical: 9,
-    paddingHorizontal: 10,
-    marginTop: 4,
+    borderRadius: THEME.radius.md,
+    paddingHorizontal: 14,
   },
-  telemetryCell: { flex: 1, alignItems: 'center', gap: 1 },
-  telemetryDiv: {
-    width: 1,
-    height: 22,
-    backgroundColor: THEME.colors.border,
-  },
-  telemetryNum: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 13,
-    fontWeight: '700',
+  searchInput: {
+    flex: 1,
     color: THEME.colors.text,
+    fontSize: 14,
+    paddingVertical: 12,
   },
-  telemetryLabel: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 8,
-    letterSpacing: 1,
-    color: THEME.colors.textDim,
+  moodRow: {
+    gap: 8,
+    paddingVertical: 2,
   },
-  filterRow: { gap: 8, paddingVertical: 2 },
-  filterChip: {
-    paddingHorizontal: 13,
-    paddingVertical: 7,
+  moodChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
     borderRadius: THEME.radius.pill,
     borderWidth: 1,
-    borderColor: THEME.colors.borderStrong,
+    borderColor: THEME.colors.border,
     backgroundColor: THEME.colors.surface,
   },
-  filterChipActive: {
+  moodChipActive: {
     borderColor: THEME.colors.accent,
     backgroundColor: THEME.colors.accentSoft,
   },
-  filterChipText: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 10,
+  moodChipText: {
+    fontSize: 13,
     color: THEME.colors.textMuted,
+    fontWeight: '500',
   },
-  filterChipTextActive: {
+  moodChipTextActive: {
     color: THEME.colors.accent,
-    fontWeight: '700',
+    fontWeight: '600',
   },
-  sectionDivider: {
+  filterSummaryRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingTop: 4,
-    borderBottomWidth: 1,
-    borderBottomColor: THEME.colors.border,
-    paddingBottom: 8,
+    paddingHorizontal: 2,
   },
-  sectionLabel: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 10,
-    letterSpacing: 1.2,
+  filterSummaryText: {
+    fontSize: 12,
     color: THEME.colors.textDim,
   },
-  sectionGuideLink: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 10,
-    color: THEME.colors.warmGold,
+  resetFilterText: {
+    fontSize: 12,
+    color: THEME.colors.accent,
+    fontWeight: '600',
   },
-  exhibitCard: {
+  weekHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    paddingTop: 18,
+    paddingBottom: 10,
+  },
+  weekTitleWrap: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 8,
+    flex: 1,
+  },
+  weekTitle: {
+    fontFamily: THEME.fonts.serif,
+    fontSize: 18,
+    color: THEME.colors.text,
+  },
+  weekRange: {
+    fontSize: 12,
+    color: THEME.colors.textDim,
+  },
+  weekCount: {
+    fontSize: 12,
+    color: THEME.colors.textDim,
+  },
+  card: {
     borderWidth: 1,
     borderRadius: THEME.radius.md,
     overflow: 'hidden',
+    marginBottom: 16,
   },
   coverWrap: {
-    height: 192,
+    height: 196,
     position: 'relative',
     justifyContent: 'space-between',
     padding: 12,
@@ -533,7 +740,7 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     left: 0,
-    opacity: 0.22,
+    opacity: 0.2,
   },
   coverShade: {
     position: 'absolute',
@@ -554,95 +761,86 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
   },
-  dirPill: {
+  datePill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: 'rgba(6, 6, 9, 0.76)',
-    paddingHorizontal: 10,
+    backgroundColor: 'rgba(6, 6, 9, 0.72)',
+    paddingHorizontal: 11,
     paddingVertical: 5,
     borderRadius: THEME.radius.pill,
   },
-  dirDot: { width: 6, height: 6, borderRadius: 99 },
-  dirText: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 9,
-    letterSpacing: 1,
+  dateDot: { width: 6, height: 6, borderRadius: 99 },
+  dateText: {
+    fontSize: 11,
+    fontWeight: '600',
     color: THEME.colors.text,
   },
-  albumCountPill: {
+  albumPill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: 'rgba(6, 6, 9, 0.76)',
+    backgroundColor: 'rgba(6, 6, 9, 0.72)',
     paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: THEME.radius.xs,
+    paddingVertical: 5,
+    borderRadius: THEME.radius.pill,
   },
-  albumCountText: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 9,
-    fontWeight: '700',
+  albumPillText: {
+    fontSize: 11,
+    fontWeight: '600',
   },
   paletteStrip: {
     flexDirection: 'row',
     gap: 4,
-    backgroundColor: 'rgba(6, 6, 9, 0.68)',
+    backgroundColor: 'rgba(6, 6, 9, 0.65)',
     padding: 5,
     borderRadius: THEME.radius.xs,
   },
   swatch: { width: 10, height: 10, borderRadius: 2 },
-  coverBottomRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
   trackPill: {
+    alignSelf: 'flex-start',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: 'rgba(6, 6, 9, 0.78)',
-    paddingHorizontal: 10,
+    backgroundColor: 'rgba(6, 6, 9, 0.75)',
+    paddingHorizontal: 11,
     paddingVertical: 5,
     borderRadius: THEME.radius.pill,
     maxWidth: '92%',
   },
   trackPillText: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 10,
+    fontSize: 11,
+    fontWeight: '500',
   },
-  cardFooter: {
+  cardBody: {
     padding: 16,
     gap: 8,
   },
-  moodTagRow: {
+  metaRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     gap: 8,
   },
-  moodTagText: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 9,
-    fontWeight: '700',
-    letterSpacing: 1,
+  moodLabel: {
+    fontSize: 12,
+    fontWeight: '600',
   },
-  modeMiniCode: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 9,
-    color: 'rgba(244, 239, 230, 0.45)',
+  styleLabel: {
+    fontSize: 11,
+    color: 'rgba(244, 239, 230, 0.5)',
   },
   folderTitle: {
     fontSize: 20,
     fontWeight: '600',
     lineHeight: 26,
   },
-  snippet: {
+  caption: {
     color: 'rgba(244, 239, 230, 0.72)',
-    fontSize: 12,
-    lineHeight: 18,
+    fontSize: 13,
+    lineHeight: 19,
   },
-  cardBottomMeta: {
+  cardFooter: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -652,58 +850,53 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: 'rgba(255,255,255,0.08)',
   },
-  snippetTextPreview: {
+  excerpt: {
     flex: 1,
-    fontFamily: THEME.fonts.serif,
     fontSize: 12,
-    color: 'rgba(244, 239, 230, 0.54)',
+    color: 'rgba(244, 239, 230, 0.52)',
   },
-  openHint: {
+  openRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
   },
-  openHintText: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 11,
-    fontWeight: '700',
+  openText: {
+    fontSize: 12,
+    fontWeight: '600',
   },
   emptyState: {
     alignItems: 'center',
     gap: 12,
-    paddingVertical: 28,
-    paddingHorizontal: 10,
+    paddingVertical: 40,
+    paddingHorizontal: 16,
   },
   emptyTitle: {
     fontFamily: THEME.fonts.serif,
-    fontSize: 20,
+    fontSize: 22,
     color: THEME.colors.text,
     textAlign: 'center',
   },
   emptyText: {
-    fontSize: 13,
-    lineHeight: 19,
+    fontSize: 14,
+    lineHeight: 20,
     color: THEME.colors.textMuted,
     textAlign: 'center',
   },
   emptyButton: {
-    borderWidth: 1,
-    borderColor: THEME.colors.accent,
+    marginTop: 4,
+    backgroundColor: THEME.colors.accent,
     borderRadius: THEME.radius.pill,
-    paddingHorizontal: 18,
-    paddingVertical: 11,
-    backgroundColor: THEME.colors.accentSoft,
+    paddingHorizontal: 22,
+    paddingVertical: 12,
   },
   emptyButtonText: {
-    fontFamily: THEME.fonts.mono,
-    color: THEME.colors.accent,
+    color: THEME.colors.accentText,
     fontWeight: '700',
-    fontSize: 11,
-    letterSpacing: 0.8,
+    fontSize: 14,
   },
   emptyLink: { padding: 6 },
   emptyLinkText: {
-    fontSize: 12,
+    fontSize: 13,
     color: THEME.colors.textMuted,
   },
 });

@@ -45,6 +45,11 @@ export default function RegisterScreen() {
       return;
     }
 
+    if (password.length < 8) {
+      setError('Пароль должен содержать минимум 8 символов.');
+      return;
+    }
+
     if (password !== confirmPassword) {
       setError('Пароли не совпадают.');
       return;
@@ -85,19 +90,18 @@ export default function RegisterScreen() {
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.header}>
-            <Text style={styles.eyebrow}>НОВЫЙ ПРОФИЛЬ</Text>
             <Text style={styles.title}>Создать дневник</Text>
             <Text style={styles.subtitle}>
-              Твои воспоминания будут храниться в личном архиве и останутся доступны с любого телефона.
+              Записи и альбомы будут храниться в вашем личном архиве и синхронизироваться между устройствами.
             </Text>
           </View>
 
           <View style={styles.formCard}>
             <View style={styles.field}>
-              <Text style={styles.fieldLabel}>01 · Имя</Text>
+              <Text style={styles.fieldLabel}>Имя</Text>
               <TextInput
                 style={styles.input}
-                placeholder="Как к тебе обращаться"
+                placeholder="Как к вам обращаться"
                 placeholderTextColor={THEME.colors.textDim}
                 value={name}
                 onChangeText={(v) => {
@@ -108,13 +112,14 @@ export default function RegisterScreen() {
             </View>
 
             <View style={styles.field}>
-              <Text style={styles.fieldLabel}>02 · Email</Text>
+              <Text style={styles.fieldLabel}>Email</Text>
               <TextInput
                 style={styles.input}
-                placeholder="name@domain.com"
+                placeholder="name@example.com"
                 placeholderTextColor={THEME.colors.textDim}
                 keyboardType="email-address"
                 autoCapitalize="none"
+                autoComplete="email"
                 value={email}
                 onChangeText={(v) => {
                   setEmail(v);
@@ -124,7 +129,7 @@ export default function RegisterScreen() {
             </View>
 
             <View style={styles.field}>
-              <Text style={styles.fieldLabel}>03 · Пароль</Text>
+              <Text style={styles.fieldLabel}>Пароль</Text>
               <View style={styles.passwordWrap}>
                 <TextInput
                   style={styles.passwordInput}
@@ -151,10 +156,10 @@ export default function RegisterScreen() {
             </View>
 
             <View style={styles.field}>
-              <Text style={styles.fieldLabel}>04 · Повтор пароля</Text>
+              <Text style={styles.fieldLabel}>Повтор пароля</Text>
               <TextInput
                 style={styles.input}
-                placeholder="Повтори пароль"
+                placeholder="Повторите пароль"
                 placeholderTextColor={THEME.colors.textDim}
                 secureTextEntry={!showPassword}
                 value={confirmPassword}
@@ -176,7 +181,7 @@ export default function RegisterScreen() {
               {loading ? (
                 <ActivityIndicator color={THEME.colors.accentText} />
               ) : (
-                <Text style={styles.primaryBtnText}>СОЗДАТЬ ПРОФИЛЬ →</Text>
+                <Text style={styles.primaryBtnText}>Создать аккаунт</Text>
               )}
             </TouchableOpacity>
           </View>
@@ -212,7 +217,7 @@ export default function RegisterScreen() {
                 router.replace('/auth/login');
               }}
             >
-              <Text style={styles.primaryBtnText}>ВОЙТИ</Text>
+              <Text style={styles.primaryBtnText}>Войти</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.secondaryBtn}
@@ -247,9 +252,9 @@ const styles = StyleSheet.create({
     paddingRight: 12,
   },
   backText: {
-    fontFamily: THEME.fonts.serif,
-    fontSize: 16,
+    fontSize: 15,
     color: THEME.colors.text,
+    fontWeight: '500',
   },
   brandMini: {
     fontFamily: THEME.fonts.serif,
@@ -263,12 +268,6 @@ const styles = StyleSheet.create({
     gap: 20,
   },
   header: { gap: 8 },
-  eyebrow: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 10,
-    letterSpacing: 1.5,
-    color: THEME.colors.accent,
-  },
   title: {
     fontFamily: THEME.fonts.serif,
     color: THEME.colors.text,
@@ -284,15 +283,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: THEME.colors.border,
     borderRadius: THEME.radius.md,
-    padding: 16,
-    gap: 13,
+    padding: 18,
+    gap: 14,
   },
   field: { gap: 6 },
   fieldLabel: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 11,
-    color: THEME.colors.accent,
-    letterSpacing: 0.6,
+    fontSize: 13,
+    fontWeight: '600',
+    color: THEME.colors.text,
   },
   input: {
     backgroundColor: THEME.colors.surfaceElevated,
@@ -341,19 +339,17 @@ const styles = StyleSheet.create({
   },
   secondaryBtnText: {
     color: THEME.colors.text,
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '600',
   },
   btnDim: { opacity: 0.55 },
   primaryBtnText: {
-    fontFamily: THEME.fonts.mono,
     color: THEME.colors.accentText,
-    fontWeight: '800',
-    fontSize: 12,
-    letterSpacing: 1,
+    fontWeight: '700',
+    fontSize: 15,
   },
   switchBtn: { alignItems: 'center', paddingVertical: 8 },
-  switchText: { color: THEME.colors.textMuted, fontSize: 13 },
+  switchText: { color: THEME.colors.textMuted, fontSize: 14 },
   switchHighlight: { color: THEME.colors.accent, fontWeight: '600' },
   alertOverlay: {
     flex: 1,

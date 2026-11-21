@@ -34,7 +34,6 @@ interface TechInputProps extends TextInputProps {
 
 export function TechInput({
   label,
-  code,
   style,
   showPasswordToggle = false,
   secureTextEntry,
@@ -45,10 +44,7 @@ export function TechInput({
 
   return (
     <View style={styles.inputGroup}>
-      <View style={styles.labelRow}>
-        {code ? <Text style={styles.labelCode}>[{code}]</Text> : null}
-        <Text style={styles.label}>{label}</Text>
-      </View>
+      <Text style={styles.label}>{label}</Text>
       <View style={showPasswordToggle && styles.passwordInputWrap}>
         <TextInput
           placeholderTextColor={THEME.colors.textDim}
@@ -109,7 +105,7 @@ export function TechButton({
 }: TechButtonProps) {
   return (
     <TouchableOpacity
-      activeOpacity={disabled ? 1 : 0.75}
+      activeOpacity={disabled ? 1 : 0.82}
       disabled={disabled}
       onPress={onPress}
       style={[
@@ -147,7 +143,6 @@ export function TechCard({ children, headerTag, style }: TechCardProps) {
       {headerTag ? (
         <View style={styles.cardHeader}>
           <Text style={styles.cardHeaderText}>{headerTag}</Text>
-          <View style={styles.cardDot} />
         </View>
       ) : null}
       <View style={styles.cardBody}>{children}</View>
@@ -160,20 +155,19 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
     borderWidth: 1,
     borderColor: THEME.colors.border,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: THEME.radius.xs,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: THEME.radius.pill,
     backgroundColor: THEME.colors.surface,
   },
   badgeActive: {
     borderColor: THEME.colors.accent,
+    backgroundColor: THEME.colors.accentSoft,
   },
   badgeText: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 10,
-    letterSpacing: 1.2,
+    fontSize: 12,
+    fontWeight: '600',
     color: THEME.colors.textMuted,
-    textTransform: 'uppercase',
   },
   badgeTextActive: {
     color: THEME.colors.accent,
@@ -181,37 +175,24 @@ const styles = StyleSheet.create({
   inputGroup: {
     marginBottom: THEME.spacing.md,
   },
-  labelRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
+  label: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: THEME.colors.text,
     marginBottom: 6,
   },
-  labelCode: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 11,
-    color: THEME.colors.accent,
-  },
-  label: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 11,
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-    color: THEME.colors.textMuted,
-  },
   input: {
-    backgroundColor: THEME.colors.surface,
+    backgroundColor: THEME.colors.surfaceElevated,
     borderWidth: 1,
     borderColor: THEME.colors.border,
-    borderRadius: THEME.radius.xs,
+    borderRadius: THEME.radius.sm,
     color: THEME.colors.text,
     paddingHorizontal: 14,
     paddingVertical: 13,
-    fontSize: 15,
+    fontSize: 14,
   },
   inputFocused: {
     borderColor: THEME.colors.borderFocus,
-    backgroundColor: THEME.colors.surfaceElevated,
   },
   inputMultiline: {
     minHeight: 96,
@@ -231,7 +212,7 @@ const styles = StyleSheet.create({
   button: {
     paddingVertical: 15,
     paddingHorizontal: 18,
-    borderRadius: THEME.radius.xs,
+    borderRadius: THEME.radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
@@ -243,7 +224,7 @@ const styles = StyleSheet.create({
   },
   btnSecondary: {
     backgroundColor: THEME.colors.surface,
-    borderColor: THEME.colors.border,
+    borderColor: THEME.colors.borderStrong,
   },
   btnGhost: {
     backgroundColor: 'transparent',
@@ -251,11 +232,8 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   btnText: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '700',
-    letterSpacing: 1.2,
-    textTransform: 'uppercase',
   },
   btnTextPrimary: {
     color: THEME.colors.accentText,
@@ -271,30 +249,20 @@ const styles = StyleSheet.create({
     backgroundColor: THEME.colors.surface,
     borderWidth: 1,
     borderColor: THEME.colors.border,
-    borderRadius: THEME.radius.xs,
+    borderRadius: THEME.radius.md,
+    overflow: 'hidden',
   },
   cardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 11,
     borderBottomWidth: 1,
     borderBottomColor: THEME.colors.border,
     backgroundColor: THEME.colors.surfaceElevated,
   },
   cardHeaderText: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 10,
-    letterSpacing: 1.2,
-    color: THEME.colors.textMuted,
-    textTransform: 'uppercase',
-  },
-  cardDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 1,
-    backgroundColor: THEME.colors.accent,
+    fontSize: 13,
+    fontWeight: '600',
+    color: THEME.colors.text,
   },
   cardBody: {
     padding: 16,

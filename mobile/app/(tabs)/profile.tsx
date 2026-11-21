@@ -141,32 +141,14 @@ export default function ProfileScreen() {
       keyboardShouldPersistTaps="handled"
       showsVerticalScrollIndicator={false}
     >
-      {/* Шапка автора дневника */}
       <View style={styles.identityCard}>
         <View style={styles.avatarCircle}>
           <Text style={styles.avatarLetters}>{initials}</Text>
         </View>
         <View style={styles.identityMeta}>
-          <View style={styles.statusRow}>
-            <View
-              style={[
-                styles.statusDot,
-                { backgroundColor: signedIn ? THEME.colors.accent : THEME.colors.textDim },
-              ]}
-            />
-            <Text style={styles.statusText}>
-              {loading
-                ? 'Загрузка профиля…'
-                : signedIn
-                  ? 'Дневник синхронизирован'
-                  : 'Гостевой режим'}
-            </Text>
-          </View>
-
           <Text style={styles.name}>
-            {displayName || (signedIn ? 'Автор дневника' : 'Войди в аккаунт')}
+            {displayName || (signedIn ? 'Автор дневника' : 'Гостевой режим')}
           </Text>
-
           {handle ? <Text style={styles.handle}>{handle}</Text> : null}
           {email ? <Text style={styles.emailText}>{email}</Text> : null}
           {joinedLabel ? (
@@ -188,13 +170,13 @@ export default function ProfileScreen() {
       ) : signedIn ? (
         <>
           <View style={styles.formCard}>
-            <Text style={styles.cardEyebrow}>ЛИЧНЫЕ ДАННЫЕ</Text>
+            <Text style={styles.cardTitle}>О вас</Text>
 
             <View style={styles.field}>
-              <Text style={styles.fieldLabel}>01 · Отображаемое имя</Text>
+              <Text style={styles.fieldLabel}>Имя</Text>
               <TextInput
                 style={styles.input}
-                placeholder="Как тебя называть в дневнике"
+                placeholder="Как к вам обращаться"
                 placeholderTextColor={THEME.colors.textDim}
                 value={displayName}
                 onChangeText={(v) => {
@@ -205,7 +187,7 @@ export default function ProfileScreen() {
             </View>
 
             <View style={styles.field}>
-              <Text style={styles.fieldLabel}>02 · Никнейм</Text>
+              <Text style={styles.fieldLabel}>Никнейм</Text>
               <TextInput
                 style={styles.input}
                 placeholder="@username"
@@ -220,10 +202,10 @@ export default function ProfileScreen() {
             </View>
 
             <View style={styles.field}>
-              <Text style={styles.fieldLabel}>03 · Подпись дневника</Text>
+              <Text style={styles.fieldLabel}>Интересы и настроение дневника</Text>
               <TextInput
                 style={[styles.input, styles.bioInput]}
-                placeholder="Пара слов о себе или о том, ради чего ведёшь этот архив…"
+                placeholder="Например: люблю плёночную фотографию, ночные прогулки, тихий инди-рок и короткие заметки без пафоса…"
                 placeholderTextColor={THEME.colors.textDim}
                 multiline
                 textAlignVertical="top"
@@ -233,6 +215,9 @@ export default function ProfileScreen() {
                   setSavedNotice(false);
                 }}
               />
+              <Text style={styles.fieldHint}>
+                Это описание учитывается при подборе стиля, названий и акцентов для ваших альбомов.
+              </Text>
             </View>
 
             {savedNotice ? (
@@ -251,7 +236,7 @@ export default function ProfileScreen() {
               {saving ? (
                 <ActivityIndicator color={THEME.colors.accentText} />
               ) : (
-                <Text style={styles.primaryBtnText}>СОХРАНИТЬ ИЗМЕНЕНИЯ</Text>
+                <Text style={styles.primaryBtnText}>Сохранить изменения</Text>
               )}
             </TouchableOpacity>
           </View>
@@ -267,24 +252,23 @@ export default function ProfileScreen() {
         </>
       ) : (
         <View style={styles.formCard}>
-          <Text style={styles.cardEyebrow}>СИНХРОНИЗАЦИЯ ДНЕВНИКА</Text>
-          <Text style={styles.guestTitle}>Твои дни всегда с тобой</Text>
+          <Text style={styles.guestTitle}>Ваши дни всегда с вами</Text>
           <Text style={styles.guestSub}>
-            Войди или создай аккаунт, чтобы сохранять папки дней в архиве и открывать их с любого устройства.
+            Войдите или создайте аккаунт, чтобы сохранять альбомы и открывать дневник на любом устройстве.
           </Text>
           <TouchableOpacity
             style={styles.primaryBtn}
             onPress={() => router.push('/auth/login')}
             activeOpacity={0.85}
           >
-            <Text style={styles.primaryBtnText}>ВОЙТИ В АККАУНТ →</Text>
+            <Text style={styles.primaryBtnText}>Войти</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.secondaryBtn}
             onPress={() => router.push('/auth/register')}
             activeOpacity={0.8}
           >
-            <Text style={styles.secondaryBtnText}>Создать новый аккаунт</Text>
+            <Text style={styles.secondaryBtnText}>Создать аккаунт</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -294,7 +278,7 @@ export default function ProfileScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: THEME.colors.bg },
-  content: { padding: THEME.spacing.md, gap: 16, paddingBottom: 44 },
+  content: { padding: THEME.spacing.md, gap: 16, paddingBottom: 48 },
   identityCard: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -306,8 +290,8 @@ const styles = StyleSheet.create({
     padding: 18,
   },
   avatarCircle: {
-    width: 66,
-    height: 66,
+    width: 64,
+    height: 64,
     borderRadius: 99,
     backgroundColor: THEME.colors.accentSoft,
     borderWidth: 1,
@@ -318,28 +302,19 @@ const styles = StyleSheet.create({
   avatarLetters: {
     fontFamily: THEME.fonts.serif,
     color: THEME.colors.accent,
-    fontSize: 23,
+    fontSize: 22,
     fontWeight: '700',
   },
   identityMeta: { flex: 1, gap: 3 },
-  statusRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  statusDot: { width: 6, height: 6, borderRadius: 99 },
-  statusText: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 10,
-    color: THEME.colors.textMuted,
-    letterSpacing: 0.6,
-  },
   name: {
     fontFamily: THEME.fonts.serif,
     color: THEME.colors.text,
-    fontSize: 22,
-    marginTop: 2,
+    fontSize: 23,
   },
   handle: {
-    fontFamily: THEME.fonts.mono,
     color: THEME.colors.accent,
-    fontSize: 12,
+    fontSize: 13,
+    fontWeight: '500',
   },
   emailText: {
     color: THEME.colors.textMuted,
@@ -369,20 +344,23 @@ const styles = StyleSheet.create({
     borderColor: THEME.colors.border,
     borderRadius: THEME.radius.md,
     padding: 16,
-    gap: 14,
+    gap: 15,
   },
-  cardEyebrow: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 10,
-    letterSpacing: 1.3,
-    color: THEME.colors.textDim,
+  cardTitle: {
+    fontFamily: THEME.fonts.serif,
+    fontSize: 20,
+    color: THEME.colors.text,
   },
   field: { gap: 6 },
   fieldLabel: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 11,
-    color: THEME.colors.accent,
-    letterSpacing: 0.6,
+    fontSize: 13,
+    fontWeight: '600',
+    color: THEME.colors.text,
+  },
+  fieldHint: {
+    fontSize: 12,
+    lineHeight: 17,
+    color: THEME.colors.textDim,
   },
   input: {
     backgroundColor: THEME.colors.surfaceElevated,
@@ -395,7 +373,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   bioInput: {
-    minHeight: 88,
+    minHeight: 96,
     lineHeight: 20,
   },
   savedRow: {
@@ -404,9 +382,9 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   savedText: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 11,
+    fontSize: 13,
     color: THEME.colors.accent,
+    fontWeight: '500',
   },
   primaryBtn: {
     backgroundColor: THEME.colors.accent,
@@ -417,11 +395,9 @@ const styles = StyleSheet.create({
   },
   btnDim: { opacity: 0.55 },
   primaryBtnText: {
-    fontFamily: THEME.fonts.mono,
     color: THEME.colors.accentText,
-    fontWeight: '800',
-    fontSize: 12,
-    letterSpacing: 1,
+    fontWeight: '700',
+    fontSize: 14,
   },
   secondaryBtn: {
     borderWidth: 1,
@@ -432,7 +408,7 @@ const styles = StyleSheet.create({
   },
   secondaryBtnText: {
     color: THEME.colors.text,
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '600',
   },
   logoutBtn: {
@@ -449,6 +425,7 @@ const styles = StyleSheet.create({
   logoutText: {
     color: THEME.colors.textMuted,
     fontSize: 13,
+    fontWeight: '500',
   },
   guestTitle: {
     fontFamily: THEME.fonts.serif,
@@ -458,6 +435,6 @@ const styles = StyleSheet.create({
   guestSub: {
     color: THEME.colors.textMuted,
     fontSize: 13,
-    lineHeight: 19,
+    lineHeight: 20,
   },
 });

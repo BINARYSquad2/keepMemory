@@ -16,7 +16,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { THEME } from '../constants/theme';
 import { clearAuthToken, getErrorMessage, hasAuthToken } from '../services/api';
 
-const DRAWER_WIDTH = Math.min(Dimensions.get('window').width * 0.82, 330);
+const DRAWER_WIDTH = Math.min(Dimensions.get('window').width * 0.82, 320);
 
 interface ArtTopBarProps {
   onOpenMenu: () => void;
@@ -36,63 +36,40 @@ export function ArtTopBar({ onOpenMenu }: ArtTopBarProps) {
       ? 'Профиль'
       : 'KeepMemory';
 
-  const moduleTag = isCreate
-    ? 'CAPTURE.EXE'
-    : isProfile
-      ? 'PROFILE.EXE'
-      : 'ARCHIVE.EXE';
-
   return (
     <View style={[styles.topBar, { paddingTop: Math.max(insets.top, 12) + 6 }]}>
-      {/* Кнопка бокового меню */}
       <TouchableOpacity
         onPress={onOpenMenu}
         activeOpacity={0.7}
         style={styles.menuTrigger}
         hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        accessibilityLabel="Открыть меню"
       >
         <View style={styles.menuLineLong} />
         <View style={styles.menuLineShort} />
       </TouchableOpacity>
 
-      {/* Центр: хай-тек модуль + тёплый выставочный заголовок */}
-      <View style={styles.centerCol}>
-        <View style={styles.moduleRow}>
-          <View style={styles.liveDot} />
-          <Text style={styles.moduleTag}>{moduleTag}</Text>
-        </View>
-        <Text style={styles.brandTitle}>{title}</Text>
-      </View>
+      <Text style={styles.brandTitle}>{title}</Text>
 
-      {/* Правые действия: гид + создать/закрыть */}
-      <View style={styles.rightActions}>
+      {isCreate ? (
         <TouchableOpacity
-          onPress={() => router.push('/guide' as Href)}
+          onPress={() => router.navigate('/(tabs)')}
           activeOpacity={0.75}
-          style={styles.iconCircle}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          style={styles.iconBtn}
+          accessibilityLabel="Закрыть создание записи"
         >
-          <Ionicons name="help" size={16} color={THEME.colors.warmGold} />
+          <Ionicons name="close" size={18} color={THEME.colors.text} />
         </TouchableOpacity>
-
-        {isCreate ? (
-          <TouchableOpacity
-            onPress={() => router.navigate('/(tabs)')}
-            activeOpacity={0.75}
-            style={styles.iconCircle}
-          >
-            <Ionicons name="close" size={18} color={THEME.colors.text} />
-          </TouchableOpacity>
-        ) : (
-          <TouchableOpacity
-            onPress={() => router.navigate('/(tabs)/create')}
-            activeOpacity={0.85}
-            style={styles.addBtn}
-          >
-            <Ionicons name="add" size={19} color={THEME.colors.accentText} />
-          </TouchableOpacity>
-        )}
-      </View>
+      ) : (
+        <TouchableOpacity
+          onPress={() => router.navigate('/(tabs)/create')}
+          activeOpacity={0.85}
+          style={styles.addBtn}
+          accessibilityLabel="Создать запись"
+        >
+          <Ionicons name="add" size={20} color={THEME.colors.accentText} />
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
@@ -109,6 +86,12 @@ type DrawerHref =
   | '/guide'
   | '/auth/login'
   | '/auth/register';
+
+type MenuIconName =
+  | 'book-outline'
+  | 'add-circle-outline'
+  | 'person-outline'
+  | 'compass-outline';
 
 export function ArtSideMenu({ visible, onClose }: ArtSideMenuProps) {
   const insets = useSafeAreaInsets();
@@ -193,42 +176,42 @@ export function ArtSideMenu({ visible, onClose }: ArtSideMenuProps) {
   };
 
   const navItems: Array<{
-    num: string;
-    code: string;
+    key: string;
+    icon: MenuIconName;
     label: string;
     sub: string;
     href: DrawerHref;
     active: boolean;
   }> = [
     {
-      num: '01',
-      code: 'ARCHIVE',
-      label: 'Галерея дней',
-      sub: 'Папки и лента воспоминаний',
+      key: 'archive',
+      icon: 'book-outline',
+      label: 'Дневник',
+      sub: 'Записи, альбомы и поиск',
       href: '/(tabs)',
-      active: pathname === '/' || pathname === '/index',
+      active: pathname === '/' || pathname === '/index' || pathname === '/(tabs)',
     },
     {
-      num: '02',
-      code: 'CAPTURE',
-      label: 'Сохранить день',
-      sub: 'Текст, альбом фото и песня',
+      key: 'create',
+      icon: 'add-circle-outline',
+      label: 'Новая запись',
+      sub: 'Текст, фотографии и песня',
       href: '/(tabs)/create',
       active: pathname.includes('/create'),
     },
     {
-      num: '03',
-      code: 'PROFILE',
+      key: 'profile',
+      icon: 'person-outline',
       label: 'Профиль',
-      sub: 'Личные данные и облако',
+      sub: 'Имя, интересы и аккаунт',
       href: '/(tabs)/profile',
       active: pathname.includes('/profile'),
     },
     {
-      num: '04',
-      code: 'GUIDE.EXE',
-      label: 'Гид и система',
-      sub: 'Как работает ArtTech-дневник',
+      key: 'guide',
+      icon: 'compass-outline',
+      label: 'Как устроен дневник',
+      sub: 'Гид и художественные режимы',
       href: '/guide',
       active: pathname.includes('/guide'),
     },
@@ -249,7 +232,7 @@ export function ArtSideMenu({ visible, onClose }: ArtSideMenuProps) {
             {
               width: DRAWER_WIDTH,
               paddingTop: Math.max(insets.top, 20) + 12,
-              paddingBottom: Math.max(insets.bottom, 20) + 10,
+              paddingBottom: Math.max(insets.bottom, 20) + 12,
               transform: [{ translateX: slideX }],
             },
           ]}
@@ -257,9 +240,8 @@ export function ArtSideMenu({ visible, onClose }: ArtSideMenuProps) {
           {/* Шапка меню */}
           <View style={styles.drawerHeader}>
             <View style={styles.drawerBrandCol}>
-              <Text style={styles.drawerEyebrow}>[KEEPMEMORY // ARTTECH]</Text>
-              <Text style={styles.drawerBrand}>KeepMemory_</Text>
-              <Text style={styles.drawerTagline}>Make the Invisible Visible</Text>
+              <Text style={styles.drawerBrand}>KeepMemory</Text>
+              <Text style={styles.drawerTagline}>Дневник атмосферы дня</Text>
             </View>
             <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
               <Ionicons name="close" size={20} color={THEME.colors.textMuted} />
@@ -268,29 +250,29 @@ export function ArtSideMenu({ visible, onClose }: ArtSideMenuProps) {
 
           <View style={styles.hairline} />
 
-          {/* Разделы в стиле каталога выставки */}
+          {/* Навигация */}
           <View style={styles.navList}>
             {navItems.map((item) => (
               <TouchableOpacity
-                key={item.num}
+                key={item.key}
                 activeOpacity={0.78}
                 onPress={() => goTo(item.href)}
                 style={[styles.navRow, item.active && styles.navRowActive]}
               >
                 <View
                   style={[
-                    styles.activeBar,
-                    { backgroundColor: item.active ? THEME.colors.accent : 'transparent' },
+                    styles.navIconWrap,
+                    item.active && styles.navIconWrapActive,
                   ]}
-                />
-                <View style={styles.navNumCol}>
-                  <Text style={[styles.navNum, item.active && { color: THEME.colors.accent }]}>
-                    {item.num} //
-                  </Text>
-                  <Text style={styles.navCode}>{item.code}</Text>
+                >
+                  <Ionicons
+                    name={item.icon}
+                    size={19}
+                    color={item.active ? THEME.colors.accent : THEME.colors.textMuted}
+                  />
                 </View>
                 <View style={styles.navTextCol}>
-                  <Text style={[styles.navLabel, item.active && { color: THEME.colors.text }]}>
+                  <Text style={[styles.navLabel, item.active && styles.navLabelActive]}>
                     {item.label}
                   </Text>
                   <Text style={styles.navSub}>{item.sub}</Text>
@@ -299,26 +281,25 @@ export function ArtSideMenu({ visible, onClose }: ArtSideMenuProps) {
             ))}
           </View>
 
-          {/* Нижняя часть меню */}
+          {/* Нижний блок аккаунта */}
           <View style={styles.drawerFooter}>
             <View style={styles.hairline} />
             {authError ? <Text style={styles.authError}>{authError}</Text> : null}
             {authStatus === 'signedOut' ? (
               <View style={styles.authLinks}>
-                <TouchableOpacity onPress={() => goTo('/auth/login')} style={styles.authBtn}>
-                  <Text style={styles.authBtnText}>Войти</Text>
+                <TouchableOpacity onPress={() => goTo('/auth/login')} style={styles.authPrimaryBtn}>
+                  <Text style={styles.authPrimaryText}>Войти</Text>
                 </TouchableOpacity>
-                <Text style={styles.authDivider}>//</Text>
-                <TouchableOpacity onPress={() => goTo('/auth/register')} style={styles.authBtn}>
-                  <Text style={styles.authBtnText}>Регистрация</Text>
+                <TouchableOpacity onPress={() => goTo('/auth/register')} style={styles.authSecondaryBtn}>
+                  <Text style={styles.authSecondaryText}>Регистрация</Text>
                 </TouchableOpacity>
               </View>
             ) : authStatus === 'signedIn' ? (
-              <TouchableOpacity onPress={handleLogout} style={styles.authBtn}>
-                <Text style={styles.authBtnText}>Выйти из аккаунта</Text>
+              <TouchableOpacity onPress={handleLogout} style={styles.logoutRow}>
+                <Ionicons name="log-out-outline" size={17} color={THEME.colors.textMuted} />
+                <Text style={styles.logoutText}>Выйти из аккаунта</Text>
               </TouchableOpacity>
             ) : null}
-            <Text style={styles.footerBuild}>GENESIS.EXE // ART_DIARY_2026</Text>
           </View>
         </Animated.View>
       </View>
@@ -340,7 +321,7 @@ const styles = StyleSheet.create({
   menuTrigger: {
     width: 38,
     height: 38,
-    borderRadius: THEME.radius.sm,
+    borderRadius: THEME.radius.pill,
     borderWidth: 1,
     borderColor: THEME.colors.border,
     backgroundColor: THEME.colors.surface,
@@ -349,63 +330,37 @@ const styles = StyleSheet.create({
     gap: 5,
   },
   menuLineLong: {
-    width: 18,
+    width: 16,
     height: 1.7,
     backgroundColor: THEME.colors.text,
     borderRadius: 2,
   },
   menuLineShort: {
-    width: 12,
+    width: 11,
     height: 1.7,
     backgroundColor: THEME.colors.accent,
     borderRadius: 2,
     alignSelf: 'flex-start',
-    marginLeft: 9,
-  },
-  centerCol: {
-    alignItems: 'center',
-    gap: 1,
-  },
-  moduleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-  },
-  liveDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 99,
-    backgroundColor: THEME.colors.accent,
-  },
-  moduleTag: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 9,
-    letterSpacing: 1.4,
-    color: THEME.colors.textDim,
+    marginLeft: 10,
   },
   brandTitle: {
     fontFamily: THEME.fonts.serif,
-    fontSize: 20,
+    fontSize: 21,
     color: THEME.colors.text,
-    letterSpacing: 0.3,
-  },
-  rightActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+    letterSpacing: 0.2,
   },
   addBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: THEME.radius.sm,
+    width: 38,
+    height: 38,
+    borderRadius: THEME.radius.pill,
     backgroundColor: THEME.colors.accent,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  iconCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: THEME.radius.sm,
+  iconBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: THEME.radius.pill,
     borderWidth: 1,
     borderColor: THEME.colors.borderStrong,
     backgroundColor: THEME.colors.surface,
@@ -419,13 +374,13 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     left: 0,
-    backgroundColor: 'rgba(3, 3, 6, 0.78)',
+    backgroundColor: 'rgba(3, 3, 6, 0.74)',
   },
   drawer: {
     flex: 1,
-    backgroundColor: '#09090F',
+    backgroundColor: '#0A0A10',
     borderRightWidth: 1,
-    borderRightColor: THEME.colors.borderStrong,
+    borderRightColor: THEME.colors.border,
     paddingHorizontal: 20,
     justifyContent: 'space-between',
   },
@@ -433,30 +388,22 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    paddingBottom: 16,
+    paddingBottom: 18,
   },
   drawerBrandCol: { gap: 4 },
-  drawerEyebrow: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 9,
-    letterSpacing: 1.4,
-    color: THEME.colors.accent,
-  },
   drawerBrand: {
     fontFamily: THEME.fonts.serif,
     fontSize: 26,
     color: THEME.colors.text,
   },
   drawerTagline: {
-    fontFamily: THEME.fonts.mono,
-    color: THEME.colors.warmGold,
-    fontSize: 11,
-    letterSpacing: 0.4,
+    color: THEME.colors.textMuted,
+    fontSize: 13,
   },
   closeBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: THEME.radius.sm,
+    width: 36,
+    height: 36,
+    borderRadius: THEME.radius.pill,
     borderWidth: 1,
     borderColor: THEME.colors.border,
     justifyContent: 'center',
@@ -468,85 +415,97 @@ const styles = StyleSheet.create({
   },
   navList: {
     flex: 1,
-    paddingTop: 22,
-    gap: 10,
+    paddingTop: 20,
+    gap: 8,
   },
   navRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 13,
+    paddingVertical: 12,
     paddingHorizontal: 10,
-    borderRadius: THEME.radius.sm,
+    borderRadius: THEME.radius.md,
     borderWidth: 1,
     borderColor: 'transparent',
-    gap: 10,
+    gap: 12,
   },
   navRowActive: {
     backgroundColor: THEME.colors.surfaceElevated,
-    borderColor: THEME.colors.borderStrong,
+    borderColor: THEME.colors.border,
   },
-  activeBar: {
-    width: 2.5,
-    height: 30,
-    borderRadius: 99,
+  navIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: THEME.radius.sm,
+    backgroundColor: THEME.colors.surface,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  navNumCol: {
-    width: 58,
-    gap: 2,
-  },
-  navNum: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 11,
-    fontWeight: '700',
-    color: THEME.colors.textDim,
-  },
-  navCode: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 8,
-    letterSpacing: 0.8,
-    color: THEME.colors.textDim,
+  navIconWrapActive: {
+    backgroundColor: THEME.colors.accentSoft,
   },
   navTextCol: {
     flex: 1,
     gap: 2,
   },
   navLabel: {
-    fontFamily: THEME.fonts.serif,
-    fontSize: 18,
+    fontSize: 15,
+    fontWeight: '600',
     color: THEME.colors.textMuted,
   },
+  navLabelActive: {
+    color: THEME.colors.text,
+  },
   navSub: {
-    fontSize: 11,
+    fontSize: 12,
     color: THEME.colors.textDim,
   },
   drawerFooter: {
-    gap: 12,
+    gap: 14,
   },
   authLinks: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
   },
-  authBtn: { paddingVertical: 4 },
-  authBtnText: {
-    fontFamily: THEME.fonts.mono,
+  authPrimaryBtn: {
+    flex: 1,
+    backgroundColor: THEME.colors.accent,
+    paddingVertical: 11,
+    borderRadius: THEME.radius.pill,
+    alignItems: 'center',
+  },
+  authPrimaryText: {
+    color: THEME.colors.accentText,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  authSecondaryBtn: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: THEME.colors.borderStrong,
+    paddingVertical: 11,
+    borderRadius: THEME.radius.pill,
+    alignItems: 'center',
+  },
+  authSecondaryText: {
     color: THEME.colors.text,
-    fontSize: 12,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  logoutRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 6,
+  },
+  logoutText: {
+    color: THEME.colors.textMuted,
+    fontSize: 14,
+    fontWeight: '500',
   },
   authError: {
     color: THEME.colors.danger,
     fontSize: 12,
     lineHeight: 17,
-  },
-  authDivider: {
-    fontFamily: THEME.fonts.mono,
-    color: THEME.colors.textDim,
-    fontSize: 11,
-  },
-  footerBuild: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 9,
-    letterSpacing: 1.4,
-    color: THEME.colors.textDim,
   },
 });

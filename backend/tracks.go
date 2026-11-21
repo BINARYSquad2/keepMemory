@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/url"
@@ -36,14 +37,28 @@ type iTunesSearchResponse struct {
 func searchTracks(c *fiber.Ctx) error {
 	query := strings.TrimSpace(c.Query("q"))
 
-	if len([]rune(query)) < 2 {
+	queryLength := len([]rune(query))
+	if queryLength < 2 {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": "Введите минимум два символа для поиска",
 		})
 	}
+	if queryLength > 200 {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Запрос поиска не должен быть длиннее 200 символов",
+		})
+	}
 
-	tracks, err := searchITunes(query)
+	ctx, cancel := context.WithTimeout(c.UserContext(), 18*time.Second)
+	defer cancel()
+	tracks, err := searchITunes(ctx, query)
 	if err != nil {
+		if isTransientUpstreamError(err) {
+			c.Set(fiber.HeaderRetryAfter, "2")
+			return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{
+				"error": "Сервис поиска музыки временно недоступен. Попробуйте ещё раз.",
+			})
+		}
 		return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{
 			"error": "Не удалось получить результаты поиска музыки",
 		})
@@ -54,7 +69,7 @@ func searchTracks(c *fiber.Ctx) error {
 	})
 }
 
-func searchITunes(query string) ([]TrackSearchResult, error) {
+func searchITunes(ctx context.Context, query string) ([]TrackSearchResult, error) {
 	params := url.Values{}
 	params.Set("term", query)
 	params.Set("country", "US")
@@ -68,14 +83,16 @@ func searchITunes(query string) ([]TrackSearchResult, error) {
 		Timeout: 8 * time.Second,
 	}
 
-	response, err := client.Get(requestURL)
+	response, err := doWithRetry(ctx, client, func(requestCtx context.Context) (*http.Request, error) {
+		return http.NewRequestWithContext(requestCtx, http.MethodGet, requestURL, nil)
+	})
 	if err != nil {
 		return nil, err
 	}
 	defer response.Body.Close()
 
 	if response.StatusCode != http.StatusOK {
-		return nil, fiber.ErrBadGateway
+		return nil, upstreamStatusError{StatusCode: response.StatusCode}
 	}
 
 	var payload iTunesSearchResponse

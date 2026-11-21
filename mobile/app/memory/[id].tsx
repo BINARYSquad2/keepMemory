@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   Linking,
   Platform,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -20,7 +21,8 @@ import {
 } from 'expo-audio';
 import { captureRef } from 'react-native-view-shot';
 import * as Sharing from 'expo-sharing';
-import { ApiError, getDay, getErrorMessage } from '../../services/api';
+import * as Speech from 'expo-speech';
+import { ApiError, deleteDay, getDay, getErrorMessage } from '../../services/api';
 import {
   formatMemoryDate,
   getMemoryPhotos,
@@ -41,6 +43,24 @@ function formatSec(seconds: number): string {
   return `${mins}:${secs}`;
 }
 
+function formatSentenceCase(value: string): string {
+  const clean = value.trim().toLowerCase();
+  if (!clean) return '';
+  return clean.charAt(0).toUpperCase() + clean.slice(1);
+}
+
+function formatFullHeaderDate(value: string): string {
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return formatMemoryDate(value);
+
+  const formatted = date.toLocaleDateString('ru-RU', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'long',
+  });
+  return formatted.charAt(0).toUpperCase() + formatted.slice(1);
+}
+
 export default function MemoryDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
@@ -58,11 +78,17 @@ export default function MemoryDetailScreen() {
   const [audioError, setAudioError] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [speaking, setSpeaking] = useState(false);
+  const [speechError, setSpeechError] = useState<string | null>(null);
   const [showSystemDetails, setShowSystemDetails] = useState(true);
 
   useEffect(() => {
     let active = true;
     setActivePhotoIndex(0);
+    setSpeaking(false);
+    setSpeechError(null);
 
     if (!id) return;
 
@@ -137,6 +163,14 @@ export default function MemoryDetailScreen() {
     };
   }, [player, previewUrl]);
 
+  useEffect(() => {
+    return () => {
+      void Speech.stop().catch((error: unknown) => {
+        console.error('stop memory narration:', error);
+      });
+    };
+  }, [id]);
+
   const togglePlay = () => {
     if (!memory) return;
 
@@ -150,6 +184,12 @@ export default function MemoryDetailScreen() {
     if (status.playing) {
       player.pause();
     } else {
+      if (speaking) {
+        void Speech.stop().catch((error: unknown) =>
+          setSpeechError(getErrorMessage(error))
+        );
+        setSpeaking(false);
+      }
       player.play();
     }
   };
@@ -168,7 +208,7 @@ export default function MemoryDetailScreen() {
 
     if (Platform.OS === 'web') {
       setExportError(
-        'Сохранение PNG-открытки доступно на телефоне (iOS / Android).'
+        'Сохранение PNG-открытки доступно в мобильном приложении (iOS и Android).'
       );
       return;
     }
@@ -206,12 +246,86 @@ export default function MemoryDetailScreen() {
     }
   };
 
+  const performDelete = async () => {
+    if (!id || deleting) return;
+    try {
+      setDeleting(true);
+      setDeleteError(null);
+      player.pause();
+      const result = await deleteDay(id);
+      if (result.warning) {
+        if (Platform.OS === 'web') {
+          globalThis.alert?.(`Запись удалена. ${result.warning}`);
+          router.replace('/(tabs)');
+        } else {
+          Alert.alert('Запись удалена', result.warning, [
+            { text: 'Продолжить', onPress: () => router.replace('/(tabs)') },
+          ]);
+        }
+        return;
+      }
+      router.replace('/(tabs)');
+    } catch (requestError) {
+      setDeleteError(getErrorMessage(requestError));
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const confirmDelete = () => {
+    if (Platform.OS === 'web') {
+      if (globalThis.confirm?.('Удалить это воспоминание и его загруженные фотографии?')) {
+        void performDelete();
+      }
+      return;
+    }
+    Alert.alert(
+      'Удалить воспоминание?',
+      'Запись и загруженные фотографии будут удалены без возможности восстановления.',
+      [
+        { text: 'Отмена', style: 'cancel' },
+        { text: 'Удалить', style: 'destructive', onPress: () => void performDelete() },
+      ]
+    );
+  };
+
+  const toggleNarration = () => {
+    if (speaking) {
+      void Speech.stop()
+        .then(() => setSpeaking(false))
+        .catch((error: unknown) => setSpeechError(getErrorMessage(error)));
+      return;
+    }
+
+    if (!memory || !atmosphere) return;
+    if (status.playing) player.pause();
+    setSpeechError(null);
+    try {
+      Speech.speak(
+        `${memory.folderTitle}. ${memory.text}. ${atmosphere.curatorSummary}`,
+        {
+          language: 'ru-RU',
+          onStart: () => setSpeaking(true),
+          onDone: () => setSpeaking(false),
+          onStopped: () => setSpeaking(false),
+          onError: (error) => {
+            setSpeaking(false);
+            setSpeechError(getErrorMessage(error));
+          },
+        }
+      );
+    } catch (error) {
+      setSpeaking(false);
+      setSpeechError(getErrorMessage(error));
+    }
+  };
+
   if (loading) {
     return (
       <SafeAreaView style={styles.safe}>
         <View style={styles.center}>
           <ActivityIndicator color={THEME.colors.accent} />
-          <Text style={styles.loadingText}>Открываем папку дня…</Text>
+          <Text style={styles.loadingText}>Открываем запись дня…</Text>
         </View>
       </SafeAreaView>
     );
@@ -232,7 +346,7 @@ export default function MemoryDetailScreen() {
           ) : null}
 
           <TouchableOpacity onPress={() => router.back()}>
-            <Text style={styles.backLink}>← Вернуться в галерею</Text>
+            <Text style={styles.backLink}>Вернуться в дневник</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -263,13 +377,10 @@ export default function MemoryDetailScreen() {
           style={styles.backBtn}
         >
           <Ionicons name="arrow-back" size={18} color={THEME.colors.text} />
-          <Text style={styles.backText}>Галерея</Text>
+          <Text style={styles.backText}>Дневник</Text>
         </TouchableOpacity>
 
-        <View style={styles.topRight}>
-          <Text style={styles.topTag}>[FOLDER.EXE]</Text>
-          <Text style={styles.topDate}>{formatMemoryDate(memory.date)}</Text>
-        </View>
+        <Text style={styles.topDate}>{formatFullHeaderDate(memory.date)}</Text>
       </View>
 
       <ScrollView
@@ -290,11 +401,9 @@ export default function MemoryDetailScreen() {
         {photos.length > 1 ? (
           <View style={styles.albumCard}>
             <View style={styles.cardHeaderRow}>
-              <Text style={styles.cardEyebrow}>
-                01 // АЛЬБОМ ДНЯ ({photos.length} КАДРОВ)
-              </Text>
-              <Text style={[styles.tempoPill, { color: accentCol }]}>
-                КАДР 0{activePhotoIndex + 1} / 0{photos.length}
+              <Text style={styles.cardTitleSmall}>Альбом дня</Text>
+              <Text style={[styles.statusLabel, { color: accentCol }]}>
+                Кадр {activePhotoIndex + 1} из {photos.length}
               </Text>
             </View>
 
@@ -323,7 +432,7 @@ export default function MemoryDetailScreen() {
                           active && { color: accentCol },
                         ]}
                       >
-                        0{idx + 1}
+                        {idx + 1}
                       </Text>
                     </View>
                   </TouchableOpacity>
@@ -333,7 +442,7 @@ export default function MemoryDetailScreen() {
           </View>
         ) : null}
 
-        {/* Кнопка экспорта PNG */}
+        {/* Кнопка сохранения PNG */}
         <TouchableOpacity
           onPress={handleExportCard}
           disabled={exporting}
@@ -348,28 +457,44 @@ export default function MemoryDetailScreen() {
           ) : (
             <Ionicons
               name="share-outline"
-              size={16}
+              size={17}
               color={THEME.colors.accent}
             />
           )}
 
           <Text style={styles.exportBtnText}>
-            {exporting ? 'СОХРАНЯЕМ ОТКРЫТКУ…' : 'СОХРАНИТЬ ОТКРЫТКУ (PNG)'}
+            {exporting ? 'Сохраняем открытку…' : 'Сохранить открытку (PNG)'}
           </Text>
         </TouchableOpacity>
 
         {exportError ? (
           <Text style={styles.audioError}>{exportError}</Text>
         ) : null}
+        {deleteError ? <Text style={styles.audioError}>{deleteError}</Text> : null}
 
-        {/* Карточка саундтрека дня */}
+        <TouchableOpacity
+          onPress={confirmDelete}
+          disabled={deleting}
+          activeOpacity={0.82}
+          style={[styles.deleteBtn, deleting && styles.exportBtnDisabled]}
+        >
+          {deleting ? (
+            <ActivityIndicator size="small" color={THEME.colors.danger} />
+          ) : (
+            <Ionicons name="trash-outline" size={17} color={THEME.colors.danger} />
+          )}
+          <Text style={styles.deleteBtnText}>
+            {deleting ? 'Удаляем запись…' : 'Удалить воспоминание'}
+          </Text>
+        </TouchableOpacity>
+
+        {/* Карточка песни дня */}
         <View style={styles.card}>
           <View style={styles.cardHeaderRow}>
-            <Text style={styles.cardEyebrow}>САУНДТРЕК ДНЯ</Text>
+            <Text style={styles.cardTitleSmall}>Саундтрек дня</Text>
 
-            <Text style={[styles.tempoPill, { color: accentCol }]}>
-              {isPlaying ? '● ЗВУЧИТ' : 'ПАУЗА'} ·{' '}
-              {memory.style.motionSpeed.toFixed(1)}x
+            <Text style={[styles.statusLabel, { color: accentCol }]}>
+              {isPlaying ? 'Звучит' : 'Пауза'} · темп {memory.style.motionSpeed.toFixed(1)}x
             </Text>
           </View>
 
@@ -456,28 +581,38 @@ export default function MemoryDetailScreen() {
 
         {/* Текст записи */}
         <View style={styles.card}>
-          <Text style={styles.cardEyebrow}>ЗАПИСЬ ДНЯ</Text>
+          <Text style={styles.cardTitleSmall}>Запись дня</Text>
           <Text style={[styles.entryText, { color: lightCol }]}>
             {memory.text}
           </Text>
         </View>
+        <TouchableOpacity
+          onPress={toggleNarration}
+          activeOpacity={0.82}
+          style={styles.exportBtn}
+        >
+          <Ionicons
+            name={speaking ? 'stop-circle-outline' : 'volume-high-outline'}
+            size={18}
+            color={THEME.colors.accent}
+          />
+          <Text style={styles.exportBtnText}>
+            {speaking ? 'Остановить озвучивание' : 'Озвучить воспоминание'}
+          </Text>
+        </TouchableOpacity>
+        {speechError ? <Text style={styles.audioError}>{speechError}</Text> : null}
 
-        {/* Уникальный кураторский разбор конкретного дня */}
-        <View style={styles.systemCard}>
-          <View style={styles.cornerTL} />
-          <View style={styles.cornerBR} />
-
+        {/* Разбор атмосферы конкретного дня */}
+        <View style={styles.card}>
           <TouchableOpacity
             style={styles.cardHeaderRow}
             onPress={() => setShowSystemDetails((prev) => !prev)}
             activeOpacity={0.75}
           >
-            <Text style={styles.cardEyebrow}>
-              LOGIC.EXE // ПОЧЕМУ ЭТОТ ДЕНЬ ВЫГЛЯДИТ ТАК
-            </Text>
+            <Text style={styles.cardTitleSmall}>Как собрано это воспоминание</Text>
             <Ionicons
               name={showSystemDetails ? 'chevron-up' : 'chevron-down'}
-              size={16}
+              size={18}
               color={THEME.colors.textMuted}
             />
           </TouchableOpacity>
@@ -485,7 +620,7 @@ export default function MemoryDetailScreen() {
           <View style={styles.moodHeaderRow}>
             <View style={[styles.moodTag, { borderColor: accentCol }]}>
               <Text style={[styles.moodTagText, { color: accentCol }]}>
-                {atmosphere.moodBadge}
+                {formatSentenceCase(atmosphere.moodBadge)}
               </Text>
             </View>
             <Text style={styles.modeMiniLabel}>{modeMeta.shortTitle}</Text>
@@ -496,26 +631,26 @@ export default function MemoryDetailScreen() {
           {showSystemDetails ? (
             <View style={styles.driversCol}>
               <View style={styles.driverRow}>
-                <Text style={styles.driverIndex}>01 // ТЕКСТ</Text>
+                <Text style={styles.driverLabel}>Текст</Text>
                 <Text style={styles.driverText}>{atmosphere.drivers.text}</Text>
               </View>
 
               <View style={styles.driverRow}>
-                <Text style={styles.driverIndex}>02 // ПАЛИТРА И СВЕТ</Text>
+                <Text style={styles.driverLabel}>Палитра и свет</Text>
                 <Text style={styles.driverText}>
                   {atmosphere.drivers.palette}
                 </Text>
               </View>
 
               <View style={styles.driverRow}>
-                <Text style={styles.driverIndex}>03 // МУЗЫКА И РИТМ</Text>
+                <Text style={styles.driverLabel}>Музыка и ритм</Text>
                 <Text style={styles.driverText}>
                   {atmosphere.drivers.music}
                 </Text>
               </View>
 
               <View style={styles.driverRow}>
-                <Text style={styles.driverIndex}>04 // АЛЬБОМ И ПРИЁМ</Text>
+                <Text style={styles.driverLabel}>Альбом и художественный приём</Text>
                 <Text style={styles.driverText}>
                   {atmosphere.drivers.album}
                 </Text>
@@ -565,9 +700,9 @@ const styles = StyleSheet.create({
   errorText: { color: THEME.colors.text, fontSize: 14, textAlign: 'center' },
   audioError: { color: THEME.colors.danger, fontSize: 12, lineHeight: 18 },
   backLink: {
-    fontFamily: THEME.fonts.mono,
     color: THEME.colors.accent,
-    fontSize: 13,
+    fontSize: 14,
+    fontWeight: '600',
   },
   topBar: {
     flexDirection: 'row',
@@ -586,20 +721,12 @@ const styles = StyleSheet.create({
     paddingRight: 12,
   },
   backText: {
-    fontFamily: THEME.fonts.serif,
-    fontSize: 17,
+    fontSize: 15,
+    fontWeight: '500',
     color: THEME.colors.text,
   },
-  topRight: { alignItems: 'flex-end', gap: 1 },
-  topTag: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 9,
-    letterSpacing: 1.2,
-    color: THEME.colors.accent,
-  },
   topDate: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 11,
+    fontSize: 13,
     color: THEME.colors.textMuted,
   },
   scroll: {
@@ -618,8 +745,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: THEME.colors.border,
     borderRadius: THEME.radius.md,
-    padding: 14,
-    gap: 10,
+    padding: 15,
+    gap: 12,
   },
   filmstrip: { gap: 8 },
   thumbItem: {
@@ -637,13 +764,12 @@ const styles = StyleSheet.create({
     bottom: 4,
     left: 4,
     backgroundColor: 'rgba(6, 6, 9, 0.78)',
-    paddingHorizontal: 5,
+    paddingHorizontal: 6,
     paddingVertical: 1,
     borderRadius: 4,
   },
   thumbNumText: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 9,
+    fontSize: 10,
     color: THEME.colors.text,
     fontWeight: '700',
   },
@@ -653,7 +779,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
     paddingHorizontal: 16,
-    paddingVertical: 13,
+    paddingVertical: 14,
     borderRadius: THEME.radius.pill,
     borderWidth: 1,
     borderColor: THEME.colors.borderStrong,
@@ -661,11 +787,26 @@ const styles = StyleSheet.create({
   },
   exportBtnDisabled: { opacity: 0.6 },
   exportBtnText: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 1,
+    fontSize: 14,
+    fontWeight: '600',
     color: THEME.colors.text,
+  },
+  deleteBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderRadius: THEME.radius.pill,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 84, 84, 0.35)',
+    backgroundColor: THEME.colors.surface,
+  },
+  deleteBtnText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: THEME.colors.danger,
   },
   card: {
     backgroundColor: THEME.colors.surface,
@@ -675,54 +816,20 @@ const styles = StyleSheet.create({
     padding: 16,
     gap: 12,
   },
-  systemCard: {
-    position: 'relative',
-    backgroundColor: THEME.colors.surface,
-    borderWidth: 1,
-    borderColor: THEME.colors.borderStrong,
-    borderRadius: THEME.radius.md,
-    padding: 16,
-    gap: 12,
-  },
-  cornerTL: {
-    position: 'absolute',
-    top: -1,
-    left: -1,
-    width: 14,
-    height: 14,
-    borderTopWidth: 2,
-    borderLeftWidth: 2,
-    borderColor: THEME.colors.accent,
-    borderTopLeftRadius: THEME.radius.md,
-  },
-  cornerBR: {
-    position: 'absolute',
-    bottom: -1,
-    right: -1,
-    width: 14,
-    height: 14,
-    borderBottomWidth: 2,
-    borderRightWidth: 2,
-    borderColor: THEME.colors.warmGold,
-    borderBottomRightRadius: THEME.radius.md,
-  },
   cardHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     gap: 8,
   },
-  cardEyebrow: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 10,
-    letterSpacing: 1.2,
-    color: THEME.colors.textDim,
+  cardTitleSmall: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: THEME.colors.text,
   },
-  tempoPill: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 0.6,
+  statusLabel: {
+    fontSize: 12,
+    fontWeight: '600',
   },
   playerRow: {
     flexDirection: 'row',
@@ -763,17 +870,19 @@ const styles = StyleSheet.create({
   progressFill: { height: '100%', borderRadius: 99 },
   progressMeta: { flexDirection: 'row', justifyContent: 'space-between' },
   timeText: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 10,
+    fontSize: 11,
     color: THEME.colors.textDim,
   },
   externalLink: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingTop: 4,
+    paddingTop: 2,
   },
-  externalLinkText: { fontFamily: THEME.fonts.mono, fontSize: 11 },
+  externalLinkText: {
+    fontSize: 13,
+    fontWeight: '500',
+  },
   entryText: {
     fontFamily: THEME.fonts.serif,
     fontSize: 16,
@@ -787,16 +896,14 @@ const styles = StyleSheet.create({
   },
   moodTag: {
     borderWidth: 1,
-    borderRadius: THEME.radius.xs,
-    paddingHorizontal: 9,
+    borderRadius: THEME.radius.pill,
+    paddingHorizontal: 11,
     paddingVertical: 4,
-    backgroundColor: THEME.colors.surfacePanel,
+    backgroundColor: THEME.colors.surfaceElevated,
   },
   moodTagText: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 1,
+    fontSize: 12,
+    fontWeight: '600',
   },
   modeMiniLabel: {
     fontFamily: THEME.fonts.serif,
@@ -810,24 +917,22 @@ const styles = StyleSheet.create({
   },
   driversCol: { gap: 10, paddingTop: 2 },
   driverRow: {
-    backgroundColor: THEME.colors.surfacePanel,
+    backgroundColor: THEME.colors.surfaceElevated,
     borderWidth: 1,
     borderColor: THEME.colors.border,
     borderRadius: THEME.radius.sm,
-    padding: 11,
+    padding: 12,
     gap: 4,
   },
-  driverIndex: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 9,
-    fontWeight: '700',
-    letterSpacing: 1.1,
+  driverLabel: {
+    fontSize: 12,
+    fontWeight: '600',
     color: THEME.colors.warmGold,
   },
   driverText: {
     color: THEME.colors.textMuted,
-    fontSize: 12,
-    lineHeight: 18,
+    fontSize: 13,
+    lineHeight: 19,
   },
   metaDivider: {
     height: 1,
@@ -869,7 +974,7 @@ const styles = StyleSheet.create({
   },
   chipHex: {
     fontFamily: THEME.fonts.mono,
-    fontSize: 10,
+    fontSize: 11,
     color: THEME.colors.textMuted,
   },
 });

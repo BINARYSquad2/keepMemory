@@ -26,8 +26,9 @@ func InitDB() (*pgxpool.Pool, error) {
 
 	var pool *pgxpool.Pool
 	var lastErr error
+	var err error
 	for attempt := 0; attempt < 5; attempt++ {
-		pool, err := pgxpool.New(ctx, dsn)
+		pool, err = pgxpool.New(ctx, dsn)
 		if err != nil {
 			return nil, fmt.Errorf("ошибка инициализации пула: %w", err)
 		}
@@ -91,17 +92,6 @@ func InitDB() (*pgxpool.Pool, error) {
 	if _, err := pool.Exec(ctx, schema); err != nil {
 		pool.Close()
 		return nil, fmt.Errorf("ошибка создания таблиц: %w", err)
-	}
-
-	// Existing Railway databases predate the album column. Keep their cover image
-	// as the first album item, so old records and new application versions agree.
-	if _, err := pool.Exec(ctx, `
-		ALTER TABLE days ADD COLUMN IF NOT EXISTS photo_uris TEXT[] NOT NULL DEFAULT '{}';
-		UPDATE days SET photo_uris = ARRAY[photo_uri]
-		WHERE COALESCE(cardinality(photo_uris), 0) = 0;
-	`); err != nil {
-		pool.Close()
-		return nil, fmt.Errorf("ошибка миграции альбома фотографий: %w", err)
 	}
 
 	return pool, nil

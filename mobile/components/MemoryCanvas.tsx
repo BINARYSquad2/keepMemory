@@ -1,5 +1,11 @@
-import React, { useEffect, useMemo } from 'react';
-import { View, Text, StyleSheet, useWindowDimensions } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  View,
+  Text,
+  Pressable,
+  StyleSheet,
+  useWindowDimensions,
+} from 'react-native';
 import {
   Canvas,
   Image as SkiaImage,
@@ -19,14 +25,23 @@ import {
   cancelAnimation,
   Easing,
 } from 'react-native-reanimated';
-import { formatMemoryDate, MemoryDay } from '../types/memory';
+import {
+  formatMemoryDate,
+  getMemoryPhotos,
+  MemoryDay,
+} from '../types/memory';
 import { ART_STYLE_META } from '../constants/artStyles';
+import { analyzeDayAtmosphere } from '../services/atmosphereInterpreter';
 import { THEME } from '../constants/theme';
 
 interface MemoryCanvasProps {
   memory: MemoryDay;
   isPlaying?: boolean;
+  activePhotoIndex?: number;
+  onSelectPhoto?: (index: number) => void;
 }
+
+type LoadedSkImage = ReturnType<typeof useImage>;
 
 function buildGrainDots(seedKey: string, width: number, height: number, count: number) {
   let seed = 0;
@@ -47,24 +62,89 @@ function buildGrainDots(seedKey: string, width: number, height: number, count: n
   }));
 }
 
-export function MemoryCanvas({ memory, isPlaying = false }: MemoryCanvasProps) {
+export function MemoryCanvas({
+  memory,
+  isPlaying = false,
+  activePhotoIndex,
+  onSelectPhoto,
+}: MemoryCanvasProps) {
   const { width: screenWidth } = useWindowDimensions();
   const cardWidth = Math.min(screenWidth - 32, 420);
   const innerWidth = cardWidth - 2;
   const photoHeight = Math.round(cardWidth * 1.18);
 
-  const image = useImage(/^blob:/i.test(memory.photoUri) ? null : memory.photoUri);
+  const photos = useMemo(() => getMemoryPhotos(memory), [memory]);
+  const [internalIndex, setInternalIndex] = useState(0);
+
+  const photoCount = photos.length;
+  const currentIndex =
+    photoCount > 0
+      ? (activePhotoIndex ?? internalIndex) % photoCount
+      : 0;
+
+  const activeUri = photos[currentIndex] ?? memory.photoUri;
+  const safeUri = /^blob:/i.test(activeUri) ? null : activeUri;
+  const loadedImage = useImage(safeUri);
+
+  // Держим предыдущий кадр под новым для плавного Skia-кроссфейда без чёрной вспышки
+  const [imgPair, setImgPair] = useState<{
+    prev: LoadedSkImage;
+    curr: LoadedSkImage;
+  }>({ prev: null, curr: null });
+  const fadeIn = useSharedValue(1);
+
+  useEffect(() => {
+    if (!loadedImage) return;
+    setImgPair((state) => {
+      if (state.curr === loadedImage) return state;
+      return { prev: state.curr, curr: loadedImage };
+    });
+    fadeIn.value = 0;
+    fadeIn.value = withTiming(1, {
+      duration: isPlaying ? 520 : 680,
+      easing: Easing.out(Easing.cubic),
+    });
+  }, [loadedImage, fadeIn, isPlaying]);
+
   const { style, track } = memory;
-  const [bgCol, accentCol, lightCol] = style.palette;
+  const [
+    bgCol = THEME.colors.bg,
+    accentCol = THEME.colors.accent,
+    lightCol = THEME.colors.text,
+  ] = style.palette ?? [];
   const energy = Math.min(1, Math.max(0.15, track.energy ?? 0.5));
-  const modeMeta = ART_STYLE_META[style.artStyle];
+  const modeMeta = ART_STYLE_META[style.artStyle] ?? ART_STYLE_META.analog_film;
+  const atmosphere = useMemo(() => analyzeDayAtmosphere(memory), [memory]);
+
+  const selectIndex = (nextIndex: number) => {
+    if (photoCount <= 1) return;
+    const normalized = ((nextIndex % photoCount) + photoCount) % photoCount;
+    if (onSelectPhoto) {
+      onSelectPhoto(normalized);
+    } else {
+      setInternalIndex(normalized);
+    }
+  };
+
+  // При включённой музыке кадры альбома автоматически сменяются в темпе трека
+  useEffect(() => {
+    if (!isPlaying || photoCount <= 1) return;
+    const speed = Math.max(0.45, style.motionSpeed || 1);
+    const intervalMs = Math.max(1900, Math.round(4400 / speed));
+
+    const timer = setInterval(() => {
+      selectIndex(currentIndex + 1);
+    }, intervalMs);
+
+    return () => clearInterval(timer);
+  }, [isPlaying, photoCount, currentIndex, style.motionSpeed]);
 
   // pulse — основной цикл движения; activity — усиление при включённой музыке
   const pulse = useSharedValue(0);
   const activity = useSharedValue(isPlaying ? 1 : 0.35);
 
   useEffect(() => {
-    const speed = Math.max(0.25, style.motionSpeed);
+    const speed = Math.max(0.25, style.motionSpeed || 1);
     const activeDuration = Math.max(520, Math.round(2300 / speed));
     const idleDuration = Math.max(2600, Math.round(5200 / speed));
 
@@ -83,7 +163,7 @@ export function MemoryCanvas({ memory, isPlaying = false }: MemoryCanvasProps) {
     return () => {
       cancelAnimation(pulse);
     };
-  }, [style.motionSpeed, isPlaying]);
+  }, [style.motionSpeed, isPlaying, pulse, activity]);
 
   // 01: Analog Film — двойная засветка
   const leakCenter = useDerivedValue(() =>
@@ -149,10 +229,10 @@ export function MemoryCanvas({ memory, isPlaying = false }: MemoryCanvasProps) {
   const eqY4 = useDerivedValue(() => barBaseY - eqH4.value);
   const eqY5 = useDerivedValue(() => barBaseY - eqH5.value);
 
-  const grainCount = Math.round(style.grainIntensity * 190);
+  const grainCount = Math.round((style.grainIntensity ?? 0.35) * 190);
   const grainDots = useMemo(
-    () => buildGrainDots(memory.id, innerWidth, photoHeight, grainCount),
-    [memory.id, innerWidth, photoHeight, grainCount]
+    () => buildGrainDots(`${memory.id}-${currentIndex}`, innerWidth, photoHeight, grainCount),
+    [memory.id, currentIndex, innerWidth, photoHeight, grainCount]
   );
 
   const isSerif = style.typographyVariant === 'serif_editorial';
@@ -165,17 +245,17 @@ export function MemoryCanvas({ memory, isPlaying = false }: MemoryCanvasProps) {
         {
           width: cardWidth,
           backgroundColor: bgCol,
-          borderColor: 'rgba(255,255,255,0.14)',
+          borderColor: 'rgba(255,255,255,0.16)',
         },
       ]}
     >
-      {/* Единый выставочный заголовок страницы */}
+      {/* Выставочная хай-тек шапка страницы */}
       <View style={styles.metaBar}>
         <View style={styles.metaLeft}>
           <View
             style={[
               styles.liveDot,
-              { backgroundColor: accentCol, opacity: isPlaying ? 1 : 0.6 },
+              { backgroundColor: accentCol, opacity: isPlaying ? 1 : 0.65 },
             ]}
           />
           <Text style={[styles.metaMono, { color: lightCol }]}>
@@ -187,21 +267,38 @@ export function MemoryCanvas({ memory, isPlaying = false }: MemoryCanvasProps) {
         </Text>
       </View>
 
-      {/* Полотно Skia */}
-      <View style={{ width: innerWidth, height: photoHeight, overflow: 'hidden' }}>
+      {/* Полотно Skia — тап листает альбом */}
+      <Pressable
+        onPress={() => selectIndex(currentIndex + 1)}
+        disabled={photoCount <= 1}
+        style={{ width: innerWidth, height: photoHeight, overflow: 'hidden' }}
+      >
         <Canvas style={{ width: innerWidth, height: photoHeight }}>
           {/* Базовый цвет */}
           <Rect x={0} y={0} width={innerWidth} height={photoHeight} color={bgCol} />
 
-          {/* Реальная фотография пользователя */}
-          {image && (
+          {/* Предыдущий кадр альбома (подложка кроссфейда) */}
+          {imgPair.prev && (
             <SkiaImage
-              image={image}
+              image={imgPair.prev}
               x={0}
               y={0}
               width={innerWidth}
               height={photoHeight}
               fit="cover"
+            />
+          )}
+
+          {/* Текущий кадр альбома с плавным появлением */}
+          {imgPair.curr && (
+            <SkiaImage
+              image={imgPair.curr}
+              x={0}
+              y={0}
+              width={innerWidth}
+              height={photoHeight}
+              fit="cover"
+              opacity={fadeIn}
             />
           )}
 
@@ -220,7 +317,7 @@ export function MemoryCanvas({ memory, isPlaying = false }: MemoryCanvasProps) {
             />
           </Rect>
 
-          {/* Мягкая верхняя и нижняя виньетка глубины */}
+          {/* Верхняя и нижняя виньетка глубины */}
           <Rect x={0} y={0} width={innerWidth} height={photoHeight * 0.26} opacity={0.55}>
             <LinearGradient
               start={vec(0, 0)}
@@ -236,7 +333,7 @@ export function MemoryCanvas({ memory, isPlaying = false }: MemoryCanvasProps) {
             />
           </Rect>
 
-          {/* РЕЖИМ 01: ANALOG FILM 35MM — тёплая засветка + видоискатель */}
+          {/* РЕЖИМ 01: ANALOG FILM 35MM */}
           {style.artStyle === 'analog_film' && (
             <>
               <Rect x={0} y={0} width={innerWidth} height={photoHeight} opacity={0.46}>
@@ -253,7 +350,6 @@ export function MemoryCanvas({ memory, isPlaying = false }: MemoryCanvasProps) {
                   colors={[lightCol, 'transparent']}
                 />
               </Rect>
-              {/* Тонкая рамка кадра */}
               <Rect
                 x={12}
                 y={12}
@@ -264,7 +360,6 @@ export function MemoryCanvas({ memory, isPlaying = false }: MemoryCanvasProps) {
                 strokeWidth={0.75}
                 opacity={0.32}
               />
-              {/* Уголки видоискателя 35mm */}
               <Line p1={vec(20, 20)} p2={vec(36, 20)} color={lightCol} strokeWidth={1.4} opacity={0.75} />
               <Line p1={vec(20, 20)} p2={vec(20, 36)} color={lightCol} strokeWidth={1.4} opacity={0.75} />
               <Line p1={vec(innerWidth - 20, 20)} p2={vec(innerWidth - 36, 20)} color={lightCol} strokeWidth={1.4} opacity={0.75} />
@@ -274,7 +369,7 @@ export function MemoryCanvas({ memory, isPlaying = false }: MemoryCanvasProps) {
             </>
           )}
 
-          {/* РЕЖИМ 02: EDITORIAL GRID — швейцарская сетка + приводные метки + фокус */}
+          {/* РЕЖИМ 02: EDITORIAL GRID */}
           {style.artStyle === 'minimal_editorial' && (
             <>
               <Line
@@ -298,7 +393,6 @@ export function MemoryCanvas({ memory, isPlaying = false }: MemoryCanvasProps) {
                 strokeWidth={0.7}
                 opacity={0.32}
               />
-              {/* Крестик-маркер на пересечении сетки */}
               <Line
                 p1={vec(innerWidth * 0.68 - 7, photoHeight * 0.33)}
                 p2={vec(innerWidth * 0.68 + 7, photoHeight * 0.33)}
@@ -335,7 +429,7 @@ export function MemoryCanvas({ memory, isPlaying = false }: MemoryCanvasProps) {
             </>
           )}
 
-          {/* РЕЖИМ 03: IMPRESSIONIST AURA — мягкие слои света в духе Клода Моне */}
+          {/* РЕЖИМ 03: IMPRESSIONIST AURA */}
           {style.artStyle === 'dreamy_aura' && (
             <>
               <Rect x={0} y={0} width={innerWidth} height={photoHeight} opacity={0.44}>
@@ -380,7 +474,7 @@ export function MemoryCanvas({ memory, isPlaying = false }: MemoryCanvasProps) {
             </>
           )}
 
-          {/* РЕЖИМ 04: KINETIC GEOMETRY — композиция и динамика Кандинского */}
+          {/* РЕЖИМ 04: KINETIC GEOMETRY */}
           {style.artStyle === 'kinetic_zine' && (
             <>
               <Line p1={beamP1} p2={beamP2} color={accentCol} strokeWidth={2.2} opacity={0.82} />
@@ -432,7 +526,7 @@ export function MemoryCanvas({ memory, isPlaying = false }: MemoryCanvasProps) {
               width={dot.size}
               height={dot.size}
               color={dot.light ? lightCol : '#000000'}
-              opacity={style.grainIntensity * 0.34}
+              opacity={(style.grainIntensity ?? 0.35) * 0.34}
             />
           ))}
 
@@ -460,10 +554,45 @@ export function MemoryCanvas({ memory, isPlaying = false }: MemoryCanvasProps) {
           <Rect x={eqStartX + 21} y={eqY4} width={3} height={eqH4} color={accentCol} opacity={0.95} />
           <Rect x={eqStartX + 28} y={eqY5} width={3} height={eqH5} color={accentCol} opacity={0.82} />
         </Canvas>
-      </View>
+
+        {/* Индикатор альбома поверх кадра, если в дне несколько фото */}
+        {photoCount > 1 ? (
+          <View pointerEvents="none" style={styles.albumOverlayTop}>
+            <View style={styles.segmentsRow}>
+              {photos.map((_, idx) => (
+                <View
+                  key={idx}
+                  style={[
+                    styles.segmentTrack,
+                    idx === currentIndex && { backgroundColor: accentCol },
+                  ]}
+                />
+              ))}
+            </View>
+            <View style={styles.frameTag}>
+              <Text style={[styles.frameTagText, { color: lightCol }]}>
+                FRAME 0{currentIndex + 1}/0{photoCount}
+              </Text>
+            </View>
+          </View>
+        ) : null}
+      </Pressable>
 
       {/* Нижняя типографическая подпись экспоната */}
       <View style={styles.footer}>
+        <View style={styles.moodRow}>
+          <View style={[styles.moodPill, { borderColor: accentCol }]}>
+            <Text style={[styles.moodPillText, { color: accentCol }]}>
+              {atmosphere.moodBadge}
+            </Text>
+          </View>
+          {photoCount > 1 ? (
+            <Text style={styles.albumHint}>
+              {isPlaying ? 'Смена в ритме трека' : 'Тапни кадр · альбом'}
+            </Text>
+          ) : null}
+        </View>
+
         <Text
           style={[
             styles.folderTitle,
@@ -474,9 +603,7 @@ export function MemoryCanvas({ memory, isPlaying = false }: MemoryCanvasProps) {
           {memory.folderTitle}
         </Text>
 
-        {style.atmosphereNote ? (
-          <Text style={styles.atmosphereNote}>{style.atmosphereNote}</Text>
-        ) : null}
+        <Text style={styles.atmosphereNote}>{atmosphere.cardCaption}</Text>
 
         <View style={styles.bottomRow}>
           <Text style={[styles.trackLabel, { color: accentCol }]} numberOfLines={1}>
@@ -484,7 +611,7 @@ export function MemoryCanvas({ memory, isPlaying = false }: MemoryCanvasProps) {
           </Text>
 
           <View style={styles.swatches}>
-            {style.palette.map((hex, i) => (
+            {(style.palette ?? []).map((hex, i) => (
               <View
                 key={`${hex}-${i}`}
                 style={[styles.swatch, { backgroundColor: hex }]}
@@ -528,9 +655,64 @@ const styles = StyleSheet.create({
     fontSize: 10,
     letterSpacing: 1.1,
   },
+  albumOverlayTop: {
+    position: 'absolute',
+    top: 10,
+    left: 14,
+    right: 14,
+    gap: 8,
+  },
+  segmentsRow: {
+    flexDirection: 'row',
+    gap: 5,
+  },
+  segmentTrack: {
+    flex: 1,
+    height: 2.5,
+    borderRadius: 99,
+    backgroundColor: 'rgba(255, 255, 255, 0.28)',
+  },
+  frameTag: {
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(6, 6, 9, 0.7)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.16)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: THEME.radius.xs,
+  },
+  frameTagText: {
+    fontFamily: THEME.fonts.mono,
+    fontSize: 9,
+    letterSpacing: 1,
+  },
   footer: {
     padding: 18,
-    gap: 10,
+    gap: 9,
+  },
+  moodRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 8,
+  },
+  moodPill: {
+    borderWidth: 1,
+    borderRadius: THEME.radius.xs,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    backgroundColor: 'rgba(6, 6, 9, 0.35)',
+  },
+  moodPillText: {
+    fontFamily: THEME.fonts.mono,
+    fontSize: 9,
+    fontWeight: '700',
+    letterSpacing: 1.1,
+  },
+  albumHint: {
+    fontFamily: THEME.fonts.mono,
+    fontSize: 9,
+    color: 'rgba(244, 239, 230, 0.5)',
   },
   folderTitle: {
     fontSize: 22,
@@ -550,7 +732,7 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   atmosphereNote: {
-    color: 'rgba(244, 239, 230, 0.68)',
+    color: 'rgba(244, 239, 230, 0.72)',
     fontSize: 12,
     lineHeight: 18,
   },
@@ -559,7 +741,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 12,
-    paddingTop: 6,
+    paddingTop: 7,
     borderTopWidth: 1,
     borderTopColor: 'rgba(255,255,255,0.08)',
   },

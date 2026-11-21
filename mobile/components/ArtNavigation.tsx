@@ -11,12 +11,12 @@ import {
   TouchableWithoutFeedback,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { usePathname, useRouter } from 'expo-router';
+import { Href, usePathname, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { THEME } from '../constants/theme';
 import { clearAuthToken, getErrorMessage, hasAuthToken } from '../services/api';
 
-const DRAWER_WIDTH = Math.min(Dimensions.get('window').width * 0.8, 320);
+const DRAWER_WIDTH = Math.min(Dimensions.get('window').width * 0.82, 330);
 
 interface ArtTopBarProps {
   onOpenMenu: () => void;
@@ -36,9 +36,15 @@ export function ArtTopBar({ onOpenMenu }: ArtTopBarProps) {
       ? 'Профиль'
       : 'KeepMemory';
 
+  const moduleTag = isCreate
+    ? 'CAPTURE.EXE'
+    : isProfile
+      ? 'PROFILE.EXE'
+      : 'ARCHIVE.EXE';
+
   return (
     <View style={[styles.topBar, { paddingTop: Math.max(insets.top, 12) + 6 }]}>
-      {/* Кнопка бокового меню (две минималистичные линии) */}
+      {/* Кнопка бокового меню */}
       <TouchableOpacity
         onPress={onOpenMenu}
         activeOpacity={0.7}
@@ -49,30 +55,44 @@ export function ArtTopBar({ onOpenMenu }: ArtTopBarProps) {
         <View style={styles.menuLineShort} />
       </TouchableOpacity>
 
-      {/* Чистый редакторский заголовок */}
-      <View style={styles.titleWrap}>
+      {/* Центр: хай-тек модуль + тёплый выставочный заголовок */}
+      <View style={styles.centerCol}>
+        <View style={styles.moduleRow}>
+          <View style={styles.liveDot} />
+          <Text style={styles.moduleTag}>{moduleTag}</Text>
+        </View>
         <Text style={styles.brandTitle}>{title}</Text>
-        {!isCreate && !isProfile && <View style={styles.brandDot} />}
       </View>
 
-      {/* Правое действие: быстрый "+" или закрыть создание */}
-      {isCreate ? (
+      {/* Правые действия: гид + создать/закрыть */}
+      <View style={styles.rightActions}>
         <TouchableOpacity
-          onPress={() => router.navigate('/(tabs)')}
+          onPress={() => router.push('/guide' as Href)}
           activeOpacity={0.75}
           style={styles.iconCircle}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
-          <Ionicons name="close" size={18} color={THEME.colors.text} />
+          <Ionicons name="help" size={16} color={THEME.colors.warmGold} />
         </TouchableOpacity>
-      ) : (
-        <TouchableOpacity
-          onPress={() => router.navigate('/(tabs)/create')}
-          activeOpacity={0.85}
-          style={styles.addBtn}
-        >
-          <Ionicons name="add" size={18} color={THEME.colors.accentText} />
-        </TouchableOpacity>
-      )}
+
+        {isCreate ? (
+          <TouchableOpacity
+            onPress={() => router.navigate('/(tabs)')}
+            activeOpacity={0.75}
+            style={styles.iconCircle}
+          >
+            <Ionicons name="close" size={18} color={THEME.colors.text} />
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            onPress={() => router.navigate('/(tabs)/create')}
+            activeOpacity={0.85}
+            style={styles.addBtn}
+          >
+            <Ionicons name="add" size={19} color={THEME.colors.accentText} />
+          </TouchableOpacity>
+        )}
+      </View>
     </View>
   );
 }
@@ -81,6 +101,14 @@ interface ArtSideMenuProps {
   visible: boolean;
   onClose: () => void;
 }
+
+type DrawerHref =
+  | '/(tabs)'
+  | '/(tabs)/create'
+  | '/(tabs)/profile'
+  | '/guide'
+  | '/auth/login'
+  | '/auth/register';
 
 export function ArtSideMenu({ visible, onClose }: ArtSideMenuProps) {
   const insets = useSafeAreaInsets();
@@ -140,15 +168,15 @@ export function ArtSideMenu({ visible, onClose }: ArtSideMenuProps) {
         if (finished) setMounted(false);
       });
     }
-  }, [visible]);
+  }, [visible, fade, slideX]);
 
-  const goTo = (href: '/(tabs)' | '/(tabs)/create' | '/(tabs)/profile' | '/auth/login' | '/auth/register') => {
+  const goTo = (href: DrawerHref) => {
     onClose();
     setTimeout(() => {
-      if (href.startsWith('/auth')) {
-        router.push(href);
+      if (href.startsWith('/auth') || href === '/guide') {
+        router.push(href as Href);
       } else {
-        router.navigate(href);
+        router.navigate(href as Href);
       }
     }, 120);
   };
@@ -164,27 +192,45 @@ export function ArtSideMenu({ visible, onClose }: ArtSideMenuProps) {
     }
   };
 
-  const navItems = [
+  const navItems: Array<{
+    num: string;
+    code: string;
+    label: string;
+    sub: string;
+    href: DrawerHref;
+    active: boolean;
+  }> = [
     {
       num: '01',
+      code: 'ARCHIVE',
       label: 'Галерея дней',
-      sub: 'Архив всех воспоминаний',
-      href: '/(tabs)' as const,
+      sub: 'Папки и лента воспоминаний',
+      href: '/(tabs)',
       active: pathname === '/' || pathname === '/index',
     },
     {
       num: '02',
+      code: 'CAPTURE',
       label: 'Сохранить день',
-      sub: 'Текст, кадр и музыка',
-      href: '/(tabs)/create' as const,
+      sub: 'Текст, альбом фото и песня',
+      href: '/(tabs)/create',
       active: pathname.includes('/create'),
     },
     {
       num: '03',
+      code: 'PROFILE',
       label: 'Профиль',
-      sub: 'Личные данные и стиль',
-      href: '/(tabs)/profile' as const,
+      sub: 'Личные данные и облако',
+      href: '/(tabs)/profile',
       active: pathname.includes('/profile'),
+    },
+    {
+      num: '04',
+      code: 'GUIDE.EXE',
+      label: 'Гид и система',
+      sub: 'Как работает ArtTech-дневник',
+      href: '/guide',
+      active: pathname.includes('/guide'),
     },
   ];
 
@@ -193,12 +239,10 @@ export function ArtSideMenu({ visible, onClose }: ArtSideMenuProps) {
   return (
     <Modal transparent visible={mounted} animationType="none" onRequestClose={onClose}>
       <View style={styles.modalRoot}>
-        {/* Затемнённый фон — нажатие закрывает меню */}
         <TouchableWithoutFeedback onPress={onClose}>
           <Animated.View style={[styles.backdrop, { opacity: fade }]} />
         </TouchableWithoutFeedback>
 
-        {/* Выдвижная боковая панель */}
         <Animated.View
           style={[
             styles.drawer,
@@ -212,9 +256,10 @@ export function ArtSideMenu({ visible, onClose }: ArtSideMenuProps) {
         >
           {/* Шапка меню */}
           <View style={styles.drawerHeader}>
-            <View>
-              <Text style={styles.drawerBrand}>KeepMemory</Text>
-              <Text style={styles.drawerTagline}>дневник атмосферы дня</Text>
+            <View style={styles.drawerBrandCol}>
+              <Text style={styles.drawerEyebrow}>[KEEPMEMORY // ARTTECH]</Text>
+              <Text style={styles.drawerBrand}>KeepMemory_</Text>
+              <Text style={styles.drawerTagline}>Make the Invisible Visible</Text>
             </View>
             <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
               <Ionicons name="close" size={20} color={THEME.colors.textMuted} />
@@ -228,7 +273,7 @@ export function ArtSideMenu({ visible, onClose }: ArtSideMenuProps) {
             {navItems.map((item) => (
               <TouchableOpacity
                 key={item.num}
-                activeOpacity={0.75}
+                activeOpacity={0.78}
                 onPress={() => goTo(item.href)}
                 style={[styles.navRow, item.active && styles.navRowActive]}
               >
@@ -238,21 +283,14 @@ export function ArtSideMenu({ visible, onClose }: ArtSideMenuProps) {
                     { backgroundColor: item.active ? THEME.colors.accent : 'transparent' },
                   ]}
                 />
-                <Text
-                  style={[
-                    styles.navNum,
-                    item.active && { color: THEME.colors.accent },
-                  ]}
-                >
-                  {item.num}
-                </Text>
+                <View style={styles.navNumCol}>
+                  <Text style={[styles.navNum, item.active && { color: THEME.colors.accent }]}>
+                    {item.num} //
+                  </Text>
+                  <Text style={styles.navCode}>{item.code}</Text>
+                </View>
                 <View style={styles.navTextCol}>
-                  <Text
-                    style={[
-                      styles.navLabel,
-                      item.active && { color: THEME.colors.text },
-                    ]}
-                  >
+                  <Text style={[styles.navLabel, item.active && { color: THEME.colors.text }]}>
                     {item.label}
                   </Text>
                   <Text style={styles.navSub}>{item.sub}</Text>
@@ -261,7 +299,7 @@ export function ArtSideMenu({ visible, onClose }: ArtSideMenuProps) {
             ))}
           </View>
 
-          {/* Нижняя часть меню: аккаунт */}
+          {/* Нижняя часть меню */}
           <View style={styles.drawerFooter}>
             <View style={styles.hairline} />
             {authError ? <Text style={styles.authError}>{authError}</Text> : null}
@@ -270,7 +308,7 @@ export function ArtSideMenu({ visible, onClose }: ArtSideMenuProps) {
                 <TouchableOpacity onPress={() => goTo('/auth/login')} style={styles.authBtn}>
                   <Text style={styles.authBtnText}>Войти</Text>
                 </TouchableOpacity>
-                <Text style={styles.authDivider}>·</Text>
+                <Text style={styles.authDivider}>//</Text>
                 <TouchableOpacity onPress={() => goTo('/auth/register')} style={styles.authBtn}>
                   <Text style={styles.authBtnText}>Регистрация</Text>
                 </TouchableOpacity>
@@ -280,6 +318,7 @@ export function ArtSideMenu({ visible, onClose }: ArtSideMenuProps) {
                 <Text style={styles.authBtnText}>Выйти из аккаунта</Text>
               </TouchableOpacity>
             ) : null}
+            <Text style={styles.footerBuild}>GENESIS.EXE // ART_DIARY_2026</Text>
           </View>
         </Animated.View>
       </View>
@@ -293,88 +332,115 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: THEME.colors.bg,
-    paddingHorizontal: 18,
-    paddingBottom: 14,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
     borderBottomWidth: 1,
     borderBottomColor: THEME.colors.border,
   },
   menuTrigger: {
-    width: 36,
-    height: 36,
+    width: 38,
+    height: 38,
+    borderRadius: THEME.radius.sm,
+    borderWidth: 1,
+    borderColor: THEME.colors.border,
+    backgroundColor: THEME.colors.surface,
     justifyContent: 'center',
-    gap: 6,
+    alignItems: 'center',
+    gap: 5,
   },
   menuLineLong: {
-    width: 22,
-    height: 1.8,
+    width: 18,
+    height: 1.7,
     backgroundColor: THEME.colors.text,
     borderRadius: 2,
   },
   menuLineShort: {
-    width: 14,
-    height: 1.8,
+    width: 12,
+    height: 1.7,
     backgroundColor: THEME.colors.accent,
     borderRadius: 2,
+    alignSelf: 'flex-start',
+    marginLeft: 9,
   },
-  titleWrap: {
+  centerCol: {
+    alignItems: 'center',
+    gap: 1,
+  },
+  moduleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 5,
+  },
+  liveDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 99,
+    backgroundColor: THEME.colors.accent,
+  },
+  moduleTag: {
+    fontFamily: THEME.fonts.mono,
+    fontSize: 9,
+    letterSpacing: 1.4,
+    color: THEME.colors.textDim,
   },
   brandTitle: {
     fontFamily: THEME.fonts.serif,
-    fontSize: 21,
+    fontSize: 20,
     color: THEME.colors.text,
     letterSpacing: 0.3,
   },
-  brandDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 99,
-    backgroundColor: THEME.colors.accent,
-    marginTop: 2,
+  rightActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   addBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 99,
+    width: 36,
+    height: 36,
+    borderRadius: THEME.radius.sm,
     backgroundColor: THEME.colors.accent,
     justifyContent: 'center',
     alignItems: 'center',
   },
   iconCircle: {
-    width: 34,
-    height: 34,
-    borderRadius: 99,
+    width: 36,
+    height: 36,
+    borderRadius: THEME.radius.sm,
     borderWidth: 1,
     borderColor: THEME.colors.borderStrong,
+    backgroundColor: THEME.colors.surface,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  modalRoot: {
-    flex: 1,
-  },
+  modalRoot: { flex: 1 },
   backdrop: {
     position: 'absolute',
     top: 0,
     right: 0,
     bottom: 0,
     left: 0,
-    backgroundColor: 'rgba(3, 3, 6, 0.72)',
+    backgroundColor: 'rgba(3, 3, 6, 0.78)',
   },
   drawer: {
     flex: 1,
-    backgroundColor: '#0B0B10',
+    backgroundColor: '#09090F',
     borderRightWidth: 1,
     borderRightColor: THEME.colors.borderStrong,
-    paddingHorizontal: 22,
+    paddingHorizontal: 20,
     justifyContent: 'space-between',
   },
   drawerHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    paddingBottom: 18,
+    paddingBottom: 16,
+  },
+  drawerBrandCol: { gap: 4 },
+  drawerEyebrow: {
+    fontFamily: THEME.fonts.mono,
+    fontSize: 9,
+    letterSpacing: 1.4,
+    color: THEME.colors.accent,
   },
   drawerBrand: {
     fontFamily: THEME.fonts.serif,
@@ -382,15 +448,15 @@ const styles = StyleSheet.create({
     color: THEME.colors.text,
   },
   drawerTagline: {
-    color: THEME.colors.textMuted,
-    fontSize: 12,
-    marginTop: 4,
+    fontFamily: THEME.fonts.mono,
+    color: THEME.colors.warmGold,
+    fontSize: 11,
     letterSpacing: 0.4,
   },
   closeBtn: {
     width: 34,
     height: 34,
-    borderRadius: 99,
+    borderRadius: THEME.radius.sm,
     borderWidth: 1,
     borderColor: THEME.colors.border,
     justifyContent: 'center',
@@ -402,28 +468,42 @@ const styles = StyleSheet.create({
   },
   navList: {
     flex: 1,
-    paddingTop: 26,
+    paddingTop: 22,
     gap: 10,
   },
   navRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 14,
+    paddingVertical: 13,
     paddingHorizontal: 10,
     borderRadius: THEME.radius.sm,
-    gap: 12,
+    borderWidth: 1,
+    borderColor: 'transparent',
+    gap: 10,
   },
   navRowActive: {
     backgroundColor: THEME.colors.surfaceElevated,
+    borderColor: THEME.colors.borderStrong,
   },
   activeBar: {
     width: 2.5,
-    height: 28,
+    height: 30,
     borderRadius: 99,
+  },
+  navNumCol: {
+    width: 58,
+    gap: 2,
   },
   navNum: {
     fontFamily: THEME.fonts.mono,
     fontSize: 11,
+    fontWeight: '700',
+    color: THEME.colors.textDim,
+  },
+  navCode: {
+    fontFamily: THEME.fonts.mono,
+    fontSize: 8,
+    letterSpacing: 0.8,
     color: THEME.colors.textDim,
   },
   navTextCol: {
@@ -432,27 +512,26 @@ const styles = StyleSheet.create({
   },
   navLabel: {
     fontFamily: THEME.fonts.serif,
-    fontSize: 20,
+    fontSize: 18,
     color: THEME.colors.textMuted,
   },
   navSub: {
-    fontSize: 12,
+    fontSize: 11,
     color: THEME.colors.textDim,
   },
   drawerFooter: {
-    gap: 16,
+    gap: 12,
   },
   authLinks: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
   },
-  authBtn: {
-    paddingVertical: 6,
-  },
+  authBtn: { paddingVertical: 4 },
   authBtnText: {
-    color: THEME.colors.textMuted,
-    fontSize: 13,
+    fontFamily: THEME.fonts.mono,
+    color: THEME.colors.text,
+    fontSize: 12,
   },
   authError: {
     color: THEME.colors.danger,
@@ -460,6 +539,14 @@ const styles = StyleSheet.create({
     lineHeight: 17,
   },
   authDivider: {
+    fontFamily: THEME.fonts.mono,
+    color: THEME.colors.textDim,
+    fontSize: 11,
+  },
+  footerBuild: {
+    fontFamily: THEME.fonts.mono,
+    fontSize: 9,
+    letterSpacing: 1.4,
     color: THEME.colors.textDim,
   },
 });

@@ -1,8 +1,10 @@
 import { Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
-import { MemoryDay, TrackInfo } from '../types/memory';
+import { DraftPhoto, MemoryDay, TrackInfo } from '../types/memory';
 
 const TOKEN_KEY = 'keepmemory.authToken';
+const ALBUM_KEY_PREFIX = 'km_album_';
+
 const configuredApiUrl = process.env.EXPO_PUBLIC_API_URL?.trim().replace(/\/+$/, '');
 export const API_URL =
   configuredApiUrl ||
@@ -39,7 +41,6 @@ async function readToken(): Promise<string | null> {
       ? null
       : globalThis.localStorage.getItem(TOKEN_KEY);
   }
-
   return SecureStore.getItemAsync(TOKEN_KEY);
 }
 
@@ -51,7 +52,6 @@ async function writeToken(token: string): Promise<void> {
     globalThis.localStorage.setItem(TOKEN_KEY, token);
     return;
   }
-
   await SecureStore.setItemAsync(TOKEN_KEY, token);
 }
 
@@ -60,7 +60,6 @@ export async function clearAuthToken(): Promise<void> {
     globalThis.localStorage?.removeItem(TOKEN_KEY);
     return;
   }
-
   await SecureStore.deleteItemAsync(TOKEN_KEY);
 }
 
@@ -84,10 +83,69 @@ export function resolveMediaUrl(uri: string): string {
   return trimmed;
 }
 
-function normalizeMemoryPhoto(day: MemoryDay): MemoryDay {
+function albumStorageKey(dayId: string): string {
+  const safeId = dayId.replace(/[^a-zA-Z0-9._-]/g, '_');
+  return `${ALBUM_KEY_PREFIX}${safeId}`;
+}
+
+async function saveLocalExtraPhotos(dayId: string, uris: string[]): Promise<void> {
+  const cleaned = uris.map((u) => u.trim()).filter(Boolean).slice(0, 5);
+  if (cleaned.length === 0) return;
+
+  const key = albumStorageKey(dayId);
+  const raw = JSON.stringify(cleaned);
+  try {
+    if (Platform.OS === 'web') {
+      globalThis.localStorage?.setItem(key, raw);
+    } else {
+      await SecureStore.setItemAsync(key, raw);
+    }
+  } catch {
+    // Игнорируем ошибку локального кэша, основная запись уже сохранена на сервере
+  }
+}
+
+async function readLocalExtraPhotos(dayId: string): Promise<string[]> {
+  const key = albumStorageKey(dayId);
+  try {
+    const raw =
+      Platform.OS === 'web'
+        ? globalThis.localStorage?.getItem(key)
+        : await SecureStore.getItemAsync(key);
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((item): item is string => typeof item === 'string')
+      .map(resolveMediaUrl)
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+async function hydrateMemoryDay(day: MemoryDay): Promise<MemoryDay> {
+  const cover = resolveMediaUrl(day.photoUri);
+  const serverPhotos = Array.isArray(day.photoUris)
+    ? day.photoUris.map(resolveMediaUrl).filter(Boolean)
+    : [];
+
+  // Если сервер уже отдаёт массив фото (после апдейта бэка / Railway) — используем его,
+  // иначе подмешиваем сохранённые дополнительные кадры альбома с устройства.
+  const extras = serverPhotos.length > 1 ? [] : await readLocalExtraPhotos(day.id);
+
+  const merged: string[] = [];
+  const pushUnique = (u: string) => {
+    if (u && !merged.includes(u)) merged.push(u);
+  };
+  pushUnique(cover);
+  serverPhotos.forEach(pushUnique);
+  extras.forEach(pushUnique);
+
   return {
     ...day,
-    photoUri: resolveMediaUrl(day.photoUri),
+    photoUri: merged[0] ?? cover,
+    photoUris: merged,
   };
 }
 
@@ -198,14 +256,14 @@ export async function updateProfile(input: ProfileUpdate): Promise<UserProfile> 
 
 export async function getDays(): Promise<MemoryDay[]> {
   const result = await request<{ days: MemoryDay[] | null }>('/api/days');
-  return (result.days ?? []).map(normalizeMemoryPhoto);
+  return Promise.all((result.days ?? []).map(hydrateMemoryDay));
 }
 
 export async function getDay(id: string): Promise<MemoryDay> {
   const result = await request<{ day: MemoryDay }>(
     `/api/days/${encodeURIComponent(id)}`
   );
-  return normalizeMemoryPhoto(result.day);
+  return hydrateMemoryDay(result.day);
 }
 
 export async function searchTracks(query: string): Promise<TrackInfo[]> {
@@ -314,15 +372,24 @@ export async function createDay(input: {
   photoUri: string;
   photoBase64?: string;
   photoMimeType?: string;
+  photos?: DraftPhoto[];
   track: TrackInfo;
 }): Promise<MemoryDay> {
-  const { name, type } = detectPhotoMeta(input.photoUri, input.photoMimeType);
+  const coverDraft: DraftPhoto = input.photos?.[0] ?? {
+    uri: input.photoUri,
+    base64: input.photoBase64,
+    mimeType: input.photoMimeType,
+  };
+  const extraUris = (input.photos ?? []).slice(1).map((p) => p.uri).filter(Boolean);
+  const { name, type } = detectPhotoMeta(coverDraft.uri, coverDraft.mimeType);
 
-  if (Platform.OS !== 'web' && input.photoBase64) {
+  let created: MemoryDay;
+
+  if (Platform.OS !== 'web' && coverDraft.base64) {
     const { body, contentType } = buildMultipartBody({
       text: input.text,
       track: input.track,
-      photoBase64: input.photoBase64,
+      photoBase64: coverDraft.base64,
       photoName: name,
       photoType: type,
     });
@@ -332,20 +399,18 @@ export async function createDay(input: {
       body: body as unknown as BodyInit,
       headers: { 'Content-Type': contentType },
     });
-    return normalizeMemoryPhoto(result.day);
-  }
-
-  if (/^(?:file:|content:|blob:)/i.test(input.photoUri)) {
+    created = result.day;
+  } else if (/^(?:file:|content:|blob:)/i.test(coverDraft.uri)) {
     const form = new FormData();
     form.append('text', input.text);
     form.append('track', JSON.stringify(input.track));
 
-    if (Platform.OS === 'web' && input.photoUri.startsWith('blob:')) {
-      const photo = await fetch(input.photoUri).then((response) => response.blob());
+    if (Platform.OS === 'web' && coverDraft.uri.startsWith('blob:')) {
+      const photo = await fetch(coverDraft.uri).then((response) => response.blob());
       form.append('photo', photo, name);
     } else {
       form.append('photo', {
-        uri: input.photoUri,
+        uri: coverDraft.uri,
         name,
         type,
       } as unknown as Blob);
@@ -356,18 +421,24 @@ export async function createDay(input: {
       body: form,
       headers: {},
     });
-    return normalizeMemoryPhoto(result.day);
+    created = result.day;
+  } else {
+    const result = await request<{ day: MemoryDay }>('/api/days', {
+      method: 'POST',
+      body: JSON.stringify({
+        text: input.text,
+        photoUri: coverDraft.uri,
+        track: input.track,
+      }),
+    });
+    created = result.day;
   }
 
-  const result = await request<{ day: MemoryDay }>('/api/days', {
-    method: 'POST',
-    body: JSON.stringify({
-      text: input.text,
-      photoUri: input.photoUri,
-      track: input.track,
-    }),
-  });
-  return normalizeMemoryPhoto(result.day);
+  if (extraUris.length > 0 && (!created.photoUris || created.photoUris.length <= 1)) {
+    await saveLocalExtraPhotos(created.id, extraUris);
+  }
+
+  return hydrateMemoryDay(created);
 }
 
 export function getErrorMessage(error: unknown): string {

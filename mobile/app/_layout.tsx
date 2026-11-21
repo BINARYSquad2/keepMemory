@@ -14,6 +14,8 @@ export default function RootLayout() {
         }}
       >
         <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="guide" />
+        <Stack.Screen name="memory/[id]" />
         <Stack.Screen name="auth/login" />
         <Stack.Screen name="auth/register" />
       </Stack>

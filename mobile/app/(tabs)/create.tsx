@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { Href, useRouter } from 'expo-router';
 import {
   setAudioModeAsync,
   useAudioPlayer,
@@ -26,14 +26,16 @@ import {
   getErrorMessage,
   searchTracks,
 } from '../../services/api';
-import { TrackInfo } from '../../types/memory';
+import { DraftPhoto, TrackInfo } from '../../types/memory';
 import { THEME } from '../../constants/theme';
+
+const MAX_PHOTOS = 6;
 
 const BUILD_STAGES = [
   'Считываем интонацию и детали текста…',
-  'Извлекаем свет и палитру фотографии…',
-  'Синхронизируем ритм композиции с треком…',
-  'Собираем страницу дня в архив…',
+  'Извлекаем свет и палитру альбома…',
+  'Синхронизируем ритм кадров с треком…',
+  'Собираем папку дня в архив…',
 ];
 
 function describeEnergy(energy: number): string {
@@ -45,9 +47,7 @@ function describeEnergy(energy: number): string {
 export default function CreateDayScreen() {
   const router = useRouter();
   const [text, setText] = useState('');
-  const [photoUri, setPhotoUri] = useState<string | null>(null);
-  const [photoBase64, setPhotoBase64] = useState<string | null>(null);
-  const [photoMimeType, setPhotoMimeType] = useState<string | null>(null);
+  const [photos, setPhotos] = useState<DraftPhoto[]>([]);
   const [songQuery, setSongQuery] = useState('');
   const [tracks, setTracks] = useState<TrackInfo[]>([]);
   const [selectedTrack, setSelectedTrack] = useState<TrackInfo | null>(null);
@@ -65,7 +65,7 @@ export default function CreateDayScreen() {
 
   const trimmedLen = text.trim().length;
   const step1Done = trimmedLen >= 10;
-  const step2Done = Boolean(photoUri);
+  const step2Done = photos.length > 0;
   const step3Done = Boolean(selectedTrack);
   const readyCount = [step1Done, step2Done, step3Done].filter(Boolean).length;
 
@@ -73,7 +73,6 @@ export default function CreateDayScreen() {
     setAudioModeAsync({ playsInSilentMode: true }).catch(() => {});
   }, []);
 
-  // Смена подписей во время сборки воспоминания
   useEffect(() => {
     if (!loading) {
       setStageIndex(0);
@@ -81,11 +80,10 @@ export default function CreateDayScreen() {
     }
     const timer = setInterval(() => {
       setStageIndex((prev) => (prev + 1) % BUILD_STAGES.length);
-    }, 1100);
+    }, 1050);
     return () => clearInterval(timer);
   }, [loading]);
 
-  // Поиск треков с дебаунсом
   useEffect(() => {
     let active = true;
     const query = songQuery.trim();
@@ -143,25 +141,47 @@ export default function CreateDayScreen() {
     previewPlayer.play();
   };
 
-  const pickImage = async () => {
+  const pickImages = async () => {
+    const remaining = MAX_PHOTOS - photos.length;
+    if (remaining <= 0) {
+      Alert.alert('Альбом заполнен', `В один день можно добавить до ${MAX_PHOTOS} фотографий.`);
+      return;
+    }
+
     try {
       const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!permission.granted) {
-        Alert.alert('Нужен доступ', 'Разреши доступ к галерее, чтобы выбрать фото дня.');
+        Alert.alert('Нужен доступ', 'Разреши доступ к галерее, чтобы собрать альбом дня.');
         return;
       }
 
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
+        allowsMultipleSelection: true,
+        selectionLimit: remaining,
         allowsEditing: false,
-        quality: 0.75,
+        quality: 0.72,
         base64: true,
       });
 
-      if (!result.canceled && result.assets[0]) {
-        setPhotoUri(result.assets[0].uri);
-        setPhotoBase64(result.assets[0].base64 ?? null);
-        setPhotoMimeType(result.assets[0].mimeType ?? null);
+      if (!result.canceled && result.assets.length > 0) {
+        const picked: DraftPhoto[] = result.assets.map((asset) => ({
+          uri: asset.uri,
+          base64: asset.base64 ?? undefined,
+          mimeType: asset.mimeType ?? undefined,
+        }));
+
+        setPhotos((prev) => {
+          const seen = new Set(prev.map((p) => p.uri));
+          const merged = [...prev];
+          for (const item of picked) {
+            if (!seen.has(item.uri) && merged.length < MAX_PHOTOS) {
+              merged.push(item);
+              seen.add(item.uri);
+            }
+          }
+          return merged;
+        });
         setError(null);
       }
     } catch (pickerError) {
@@ -169,10 +189,24 @@ export default function CreateDayScreen() {
     }
   };
 
+  const removePhoto = (index: number) => {
+    setPhotos((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const makeCover = (index: number) => {
+    if (index === 0) return;
+    setPhotos((prev) => {
+      const next = [...prev];
+      const [chosen] = next.splice(index, 1);
+      return [chosen, ...next];
+    });
+  };
+
   const handleSave = async () => {
     if (loading) return;
-    if (!step1Done || !photoUri || !selectedTrack) {
-      setError('Заполните все 3 шага: текст (от 10 символов), фотографию и трек из поиска.');
+    const cover = photos[0];
+    if (!step1Done || !cover || !selectedTrack) {
+      setError('Заполните все 3 шага: текст (от 10 символов), минимум 1 фото и трек из поиска.');
       return;
     }
 
@@ -183,16 +217,15 @@ export default function CreateDayScreen() {
       setLoading(true);
       const created = await createDay({
         text: text.trim(),
-        photoUri,
-        photoBase64: photoBase64 ?? undefined,
-        photoMimeType: photoMimeType ?? undefined,
+        photoUri: cover.uri,
+        photoBase64: cover.base64,
+        photoMimeType: cover.mimeType,
+        photos,
         track: selectedTrack,
       });
 
       setText('');
-      setPhotoUri(null);
-      setPhotoBase64(null);
-      setPhotoMimeType(null);
+      setPhotos([]);
       setSongQuery('');
       setTracks([]);
       setSelectedTrack(null);
@@ -206,9 +239,9 @@ export default function CreateDayScreen() {
     }
   };
 
-  const canRenderPhoto = Boolean(
-    photoUri && (Platform.OS === 'web' || !/^blob:/i.test(photoUri))
-  );
+  const coverPhoto = photos[0] ?? null;
+  const canRenderUri = (uri?: string) =>
+    Boolean(uri && (Platform.OS === 'web' || !/^blob:/i.test(uri)));
 
   return (
     <>
@@ -218,28 +251,49 @@ export default function CreateDayScreen() {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        {/* Шапка + живой индикатор готовности */}
-        <View style={styles.intro}>
-          <Text style={styles.introTitle}>Зафиксируй ощущение дня</Text>
+        {/* Шапка Genesis.exe × ArtTech */}
+        <View style={styles.introCard}>
+          <View style={styles.cornerTL} />
+          <View style={styles.cornerBR} />
+          <View style={styles.introTopRow}>
+            <Text style={styles.eyebrow}>• CAPTURE.EXE // NEW_MEMORY</Text>
+            <TouchableOpacity onPress={() => router.push('/guide' as Href)}>
+              <Text style={styles.guideLink}>Гид →</Text>
+            </TouchableOpacity>
+          </View>
+          <Text style={styles.introTitle}>Зафиксируй ощущение дня_</Text>
           <Text style={styles.introSub}>
-            Слова, свет фотографии и ритм песни сложатся в живую страницу твоего дневника.
+            Слова, альбом фотографий и саундтрек сложатся в живую страницу твоего дневника.
           </Text>
           <View style={styles.progressRow}>
-            {[step1Done, step2Done, step3Done].map((done, idx) => (
-              <View
-                key={idx}
-                style={[styles.progressBar, done && styles.progressBarActive]}
-              />
+            {[
+              { label: 'СЛОВА', done: step1Done },
+              { label: 'АЛЬБОМ', done: step2Done },
+              { label: 'ТРЕК', done: step3Done },
+            ].map((item) => (
+              <View key={item.label} style={styles.progressCol}>
+                <View
+                  style={[styles.progressBar, item.done && styles.progressBarActive]}
+                />
+                <Text
+                  style={[
+                    styles.progressStepLabel,
+                    item.done && styles.progressStepLabelActive,
+                  ]}
+                >
+                  {item.label}
+                </Text>
+              </View>
             ))}
             <Text style={styles.progressText}>{readyCount}/3</Text>
           </View>
         </View>
 
-        {/* ШАГ 01 */}
+        {/* ШАГ 01 // СЛОВА */}
         <View style={[styles.stepCard, step1Done && styles.stepCardReady]}>
           <View style={styles.stepHeader}>
             <View style={styles.stepTagRow}>
-              <Text style={styles.stepTag}>01 · Слова</Text>
+              <Text style={styles.stepTag}>01 // СЛОВА</Text>
               {step1Done && (
                 <Ionicons name="checkmark-circle" size={14} color={THEME.colors.accent} />
               )}
@@ -265,48 +319,125 @@ export default function CreateDayScreen() {
           />
         </View>
 
-        {/* ШАГ 02 */}
+        {/* ШАГ 02 // АЛЬБОМ КАДРОВ */}
         <View style={[styles.stepCard, step2Done && styles.stepCardReady]}>
           <View style={styles.stepHeader}>
             <View style={styles.stepTagRow}>
-              <Text style={styles.stepTag}>02 · Кадр дня</Text>
+              <Text style={styles.stepTag}>02 // АЛЬБОМ ФОТО</Text>
               {step2Done && (
                 <Ionicons name="checkmark-circle" size={14} color={THEME.colors.accent} />
               )}
             </View>
-            <Text style={styles.stepHint}>Задаёт свет и палитру</Text>
+            <Text style={[styles.stepHint, step2Done && styles.stepHintReady]}>
+              {photos.length}/{MAX_PHOTOS} кадров
+            </Text>
           </View>
-          <TouchableOpacity style={styles.photoBox} onPress={pickImage} activeOpacity={0.82}>
-            {canRenderPhoto && photoUri ? (
-              <>
-                <Image source={{ uri: photoUri }} style={styles.previewImage} />
-                <View style={styles.changePhotoBadge}>
-                  <Ionicons name="refresh" size={13} color={THEME.colors.text} />
-                  <Text style={styles.changePhotoText}>Заменить фото</Text>
+
+          {coverPhoto && canRenderUri(coverPhoto.uri) ? (
+            <View style={styles.albumBlock}>
+              {/* Главный кадр обложки */}
+              <View style={styles.coverBox}>
+                <Image source={{ uri: coverPhoto.uri }} style={styles.previewImage} />
+                <View style={styles.coverOverlayTop}>
+                  <View style={styles.coverBadge}>
+                    <View style={styles.coverDot} />
+                    <Text style={styles.coverBadgeText}>
+                      ГЛАВНЫЙ КАДР · 1/{photos.length}
+                    </Text>
+                  </View>
+                  {photos.length < MAX_PHOTOS ? (
+                    <TouchableOpacity
+                      onPress={pickImages}
+                      style={styles.addMorePill}
+                      activeOpacity={0.85}
+                    >
+                      <Ionicons name="add" size={14} color={THEME.colors.accentText} />
+                      <Text style={styles.addMoreText}>Ещё фото</Text>
+                    </TouchableOpacity>
+                  ) : null}
                 </View>
-              </>
-            ) : (
+              </View>
+
+              {/* Плёночная полоска миниатюр альбома */}
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.filmstrip}
+              >
+                {photos.map((photo, idx) => {
+                  const isCover = idx === 0;
+                  return (
+                    <TouchableOpacity
+                      key={`${photo.uri}-${idx}`}
+                      onPress={() => makeCover(idx)}
+                      activeOpacity={0.85}
+                      style={[
+                        styles.thumbWrap,
+                        isCover && styles.thumbWrapCover,
+                      ]}
+                    >
+                      {canRenderUri(photo.uri) ? (
+                        <Image source={{ uri: photo.uri }} style={styles.thumbImg} />
+                      ) : null}
+                      <View style={styles.thumbIndex}>
+                        <Text style={styles.thumbIndexText}>
+                          {isCover ? '★' : `0${idx + 1}`}
+                        </Text>
+                      </View>
+                      <TouchableOpacity
+                        onPress={() => removePhoto(idx)}
+                        style={styles.thumbDelete}
+                        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                      >
+                        <Ionicons name="close" size={12} color="#FFFFFF" />
+                      </TouchableOpacity>
+                    </TouchableOpacity>
+                  );
+                })}
+
+                {photos.length < MAX_PHOTOS ? (
+                  <TouchableOpacity
+                    onPress={pickImages}
+                    style={styles.thumbAddTile}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="add" size={20} color={THEME.colors.accent} />
+                    <Text style={styles.thumbAddLabel}>Добавить</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </ScrollView>
+
+              <Text style={styles.albumTip}>
+                {photos.length > 1
+                  ? 'Кадры будут плавно сменяться в ритме песни. Нажми на миниатюру, чтобы сделать её обложкой.'
+                  : 'Можешь добавить ещё до 5 снимков, чтобы собрать живой альбом дня.'}
+              </Text>
+            </View>
+          ) : (
+            <TouchableOpacity style={styles.photoBox} onPress={pickImages} activeOpacity={0.82}>
               <View style={styles.photoEmpty}>
                 <View style={styles.photoIconCircle}>
-                  <Ionicons name="image-outline" size={24} color={THEME.colors.accent} />
+                  <Ionicons name="images-outline" size={24} color={THEME.colors.accent} />
                 </View>
-                <Text style={styles.photoPlaceholder}>Выбрать фотографию из галереи</Text>
-                <Text style={styles.photoSub}>Подойдёт любой снимок этого дня</Text>
+                <Text style={styles.photoPlaceholder}>Выбрать 1–6 фотографий дня</Text>
+                <Text style={styles.photoSub}>
+                  Из них сложится палитра и живой альбом воспоминания
+                </Text>
               </View>
-            )}
-          </TouchableOpacity>
+            </TouchableOpacity>
+          )}
         </View>
 
-        {/* ШАГ 03 */}
+        {/* ШАГ 03 // САУНДТРЕК */}
         <View style={[styles.stepCard, step3Done && styles.stepCardReady]}>
           <View style={styles.stepHeader}>
             <View style={styles.stepTagRow}>
-              <Text style={styles.stepTag}>03 · Саундтрек</Text>
+              <Text style={styles.stepTag}>03 // САУНДТРЕК</Text>
               {step3Done && (
                 <Ionicons name="checkmark-circle" size={14} color={THEME.colors.accent} />
               )}
             </View>
-            <Text style={styles.stepHint}>Влияет на ритм и форму</Text>
+            <Text style={styles.stepHint}>Задаёт ритм и темп кадров</Text>
           </View>
 
           <View style={styles.songInputWrap}>
@@ -421,7 +552,6 @@ export default function CreateDayScreen() {
                       idx === tracks.length - 1 && styles.trackResultLast,
                     ]}
                   >
-                    {/* Кнопка прослушивания превью */}
                     <TouchableOpacity
                       onPress={() => toggleTrackPreview(track)}
                       style={styles.artworkWrap}
@@ -445,7 +575,6 @@ export default function CreateDayScreen() {
                       ) : null}
                     </TouchableOpacity>
 
-                    {/* Выбор трека */}
                     <TouchableOpacity
                       style={styles.trackResultMain}
                       onPress={() => {
@@ -508,7 +637,10 @@ export default function CreateDayScreen() {
       <Modal transparent visible={loading} animationType="fade">
         <View style={styles.overlayRoot}>
           <View style={styles.overlayCard}>
+            <View style={styles.cornerTL} />
+            <View style={styles.cornerBR} />
             <ActivityIndicator size="large" color={THEME.colors.accent} />
+            <Text style={styles.overlayCode}>RENDER.EXE // SYNTHESIS</Text>
             <Text style={styles.overlayTitle}>Создаём страницу дня</Text>
             <Text style={styles.overlayStage}>{BUILD_STAGES[stageIndex]}</Text>
           </View>
@@ -523,12 +655,58 @@ const styles = StyleSheet.create({
   content: {
     padding: THEME.spacing.md,
     gap: 16,
-    paddingBottom: 44,
+    paddingBottom: 48,
   },
-  intro: { gap: 6, marginBottom: 2 },
+  introCard: {
+    position: 'relative',
+    backgroundColor: THEME.colors.surface,
+    borderWidth: 1,
+    borderColor: THEME.colors.borderStrong,
+    borderRadius: THEME.radius.md,
+    padding: 16,
+    gap: 7,
+  },
+  cornerTL: {
+    position: 'absolute',
+    top: -1,
+    left: -1,
+    width: 14,
+    height: 14,
+    borderTopWidth: 2,
+    borderLeftWidth: 2,
+    borderColor: THEME.colors.accent,
+    borderTopLeftRadius: THEME.radius.md,
+  },
+  cornerBR: {
+    position: 'absolute',
+    bottom: -1,
+    right: -1,
+    width: 14,
+    height: 14,
+    borderBottomWidth: 2,
+    borderRightWidth: 2,
+    borderColor: THEME.colors.warmGold,
+    borderBottomRightRadius: THEME.radius.md,
+  },
+  introTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  eyebrow: {
+    fontFamily: THEME.fonts.mono,
+    fontSize: 9,
+    letterSpacing: 1.4,
+    color: THEME.colors.accent,
+  },
+  guideLink: {
+    fontFamily: THEME.fonts.mono,
+    fontSize: 10,
+    color: THEME.colors.warmGold,
+  },
   introTitle: {
     fontFamily: THEME.fonts.serif,
-    fontSize: 26,
+    fontSize: 25,
     color: THEME.colors.text,
   },
   introSub: {
@@ -538,12 +716,12 @@ const styles = StyleSheet.create({
   },
   progressRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: 8,
     marginTop: 8,
   },
+  progressCol: { flex: 1, gap: 4 },
   progressBar: {
-    flex: 1,
     height: 3,
     borderRadius: 99,
     backgroundColor: THEME.colors.borderStrong,
@@ -551,10 +729,20 @@ const styles = StyleSheet.create({
   progressBarActive: {
     backgroundColor: THEME.colors.accent,
   },
+  progressStepLabel: {
+    fontFamily: THEME.fonts.mono,
+    fontSize: 8,
+    letterSpacing: 0.8,
+    color: THEME.colors.textDim,
+  },
+  progressStepLabelActive: {
+    color: THEME.colors.text,
+  },
   progressText: {
     fontFamily: THEME.fonts.mono,
     fontSize: 11,
     color: THEME.colors.accent,
+    marginTop: -4,
   },
   stepCard: {
     backgroundColor: THEME.colors.surface,
@@ -565,7 +753,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   stepCardReady: {
-    borderColor: 'rgba(216, 255, 75, 0.28)',
+    borderColor: 'rgba(216, 255, 75, 0.3)',
   },
   stepHeader: {
     flexDirection: 'row',
@@ -582,14 +770,14 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     color: THEME.colors.accent,
-    letterSpacing: 0.8,
+    letterSpacing: 0.9,
   },
   stepHint: {
     fontSize: 11,
     color: THEME.colors.textDim,
   },
   stepHintReady: {
-    color: THEME.colors.textMuted,
+    color: THEME.colors.warmGold,
   },
   textArea: {
     backgroundColor: THEME.colors.surfaceElevated,
@@ -603,7 +791,7 @@ const styles = StyleSheet.create({
     borderColor: THEME.colors.border,
   },
   photoBox: {
-    height: 215,
+    height: 205,
     borderRadius: THEME.radius.sm,
     backgroundColor: THEME.colors.surfaceElevated,
     borderWidth: 1,
@@ -628,24 +816,137 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
-  photoSub: { color: THEME.colors.textMuted, fontSize: 12 },
+  photoSub: {
+    color: THEME.colors.textMuted,
+    fontSize: 12,
+    textAlign: 'center',
+  },
+  albumBlock: { gap: 10 },
+  coverBox: {
+    height: 215,
+    borderRadius: THEME.radius.sm,
+    overflow: 'hidden',
+    backgroundColor: THEME.colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: THEME.colors.borderStrong,
+  },
   previewImage: { width: '100%', height: '100%', resizeMode: 'cover' },
-  changePhotoBadge: {
+  coverOverlayTop: {
     position: 'absolute',
-    bottom: 10,
+    top: 10,
+    left: 10,
     right: 10,
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    gap: 5,
-    backgroundColor: 'rgba(7,7,10,0.78)',
+  },
+  coverBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(6, 6, 9, 0.8)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.16)',
     paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingVertical: 5,
     borderRadius: THEME.radius.pill,
   },
-  changePhotoText: {
+  coverDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 99,
+    backgroundColor: THEME.colors.accent,
+  },
+  coverBadgeText: {
+    fontFamily: THEME.fonts.mono,
+    fontSize: 9,
+    letterSpacing: 0.9,
+    color: THEME.colors.text,
+  },
+  addMorePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: THEME.colors.accent,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: THEME.radius.pill,
+  },
+  addMoreText: {
     fontFamily: THEME.fonts.mono,
     fontSize: 10,
-    color: THEME.colors.text,
+    fontWeight: '700',
+    color: THEME.colors.accentText,
+  },
+  filmstrip: {
+    gap: 8,
+    paddingVertical: 2,
+  },
+  thumbWrap: {
+    width: 66,
+    height: 66,
+    borderRadius: THEME.radius.sm,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: THEME.colors.borderStrong,
+    backgroundColor: THEME.colors.surfaceElevated,
+  },
+  thumbWrapCover: {
+    borderWidth: 2,
+    borderColor: THEME.colors.accent,
+  },
+  thumbImg: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  thumbIndex: {
+    position: 'absolute',
+    bottom: 4,
+    left: 4,
+    backgroundColor: 'rgba(6, 6, 9, 0.78)',
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 4,
+  },
+  thumbIndexText: {
+    fontFamily: THEME.fonts.mono,
+    fontSize: 9,
+    color: THEME.colors.accent,
+    fontWeight: '700',
+  },
+  thumbDelete: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    width: 18,
+    height: 18,
+    borderRadius: 99,
+    backgroundColor: 'rgba(6, 6, 9, 0.82)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  thumbAddTile: {
+    width: 66,
+    height: 66,
+    borderRadius: THEME.radius.sm,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: THEME.colors.accent,
+    backgroundColor: THEME.colors.accentSoft,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 2,
+  },
+  thumbAddLabel: {
+    fontFamily: THEME.fonts.mono,
+    fontSize: 8,
+    color: THEME.colors.accent,
+  },
+  albumTip: {
+    fontSize: 11,
+    lineHeight: 16,
+    color: THEME.colors.textDim,
   },
   songInputWrap: {
     flexDirection: 'row',
@@ -793,12 +1094,13 @@ const styles = StyleSheet.create({
   },
   overlayRoot: {
     flex: 1,
-    backgroundColor: 'rgba(7, 7, 10, 0.82)',
+    backgroundColor: 'rgba(6, 6, 9, 0.84)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,
   },
   overlayCard: {
+    position: 'relative',
     width: '100%',
     maxWidth: 320,
     backgroundColor: THEME.colors.surface,
@@ -807,7 +1109,14 @@ const styles = StyleSheet.create({
     borderRadius: THEME.radius.md,
     padding: 28,
     alignItems: 'center',
-    gap: 14,
+    gap: 10,
+  },
+  overlayCode: {
+    fontFamily: THEME.fonts.mono,
+    fontSize: 9,
+    letterSpacing: 1.5,
+    color: THEME.colors.warmGold,
+    marginTop: 4,
   },
   overlayTitle: {
     fontFamily: THEME.fonts.serif,

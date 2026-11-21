@@ -33,8 +33,31 @@ export interface MemoryDay {
   folderTitle: string; // 3-7 слов
   text: string;
   photoUri: string;
+  photoUris?: string[]; // Полный альбом дня (1–6 кадров)
   track: TrackInfo;
   style: StyleRecipe;
+}
+
+export interface DraftPhoto {
+  uri: string;
+  base64?: string;
+  mimeType?: string;
+}
+
+export function getMemoryPhotos(memory: MemoryDay): string[] {
+  const result: string[] = [];
+  const pushUnique = (uri?: string) => {
+    const clean = uri?.trim();
+    if (clean && !result.includes(clean)) {
+      result.push(clean);
+    }
+  };
+
+  pushUnique(memory.photoUri);
+  if (Array.isArray(memory.photoUris)) {
+    memory.photoUris.forEach(pushUnique);
+  }
+  return result;
 }
 
 export function formatMemoryDate(value: string): string {

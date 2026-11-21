@@ -10,17 +10,22 @@ import {
   ActivityIndicator,
   RefreshControl,
 } from 'react-native';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { Href, useFocusEffect, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { ApiError, getDays, getErrorMessage, hasAuthToken } from '../../services/api';
-import { ArtStyle, formatMemoryDate, MemoryDay } from '../../types/memory';
+import {
+  ArtStyle,
+  formatMemoryDate,
+  getMemoryPhotos,
+  MemoryDay,
+} from '../../types/memory';
 import { ART_STYLE_META } from '../../constants/artStyles';
+import { analyzeDayAtmosphere } from '../../services/atmosphereInterpreter';
 import { THEME } from '../../constants/theme';
 
 export default function ArchiveScreen() {
   const router = useRouter();
   const [items, setItems] = useState<MemoryDay[]>([]);
-  const [guideOpen, setGuideOpen] = useState<boolean | null>(null);
   const [selectedStyle, setSelectedStyle] = useState<ArtStyle | 'all'>('all');
   const [loading, setLoading] = useState(true);
   const [needsAuth, setNeedsAuth] = useState(false);
@@ -54,14 +59,16 @@ export default function ArchiveScreen() {
     }, [loadDays])
   );
 
-  // По умолчанию гид открыт, пока архив пуст; но кнопка «Гид» всегда может его открыть/скрыть
-  const isGuideVisible = guideOpen === null ? items.length === 0 : guideOpen;
-
   const availableStyles = useMemo(() => {
     const set = new Set<ArtStyle>();
     items.forEach((d) => set.add(d.style.artStyle));
     return Array.from(set);
   }, [items]);
+
+  const totalPhotos = useMemo(
+    () => items.reduce((sum, day) => sum + Math.max(1, getMemoryPhotos(day).length), 0),
+    [items]
+  );
 
   const filteredItems = useMemo(() => {
     if (selectedStyle === 'all') return items;
@@ -69,10 +76,16 @@ export default function ArchiveScreen() {
   }, [items, selectedStyle]);
 
   const renderFolder = ({ item, index }: { item: MemoryDay; index: number }) => {
-    const [bgCol, accentCol, lightCol] = item.style.palette;
+    const [
+      bgCol = THEME.colors.bg,
+      accentCol = THEME.colors.accent,
+      lightCol = THEME.colors.text,
+    ] = item.style.palette ?? [];
     const folderNum = String(filteredItems.length - index).padStart(2, '0');
     const isSerif = item.style.typographyVariant === 'serif_editorial';
-    const modeMeta = ART_STYLE_META[item.style.artStyle];
+    const modeMeta = ART_STYLE_META[item.style.artStyle] ?? ART_STYLE_META.analog_film;
+    const photos = getMemoryPhotos(item);
+    const atmosphere = analyzeDayAtmosphere(item);
 
     return (
       <TouchableOpacity
@@ -80,10 +93,10 @@ export default function ArchiveScreen() {
         onPress={() => router.push(`/memory/${item.id}`)}
         style={[
           styles.exhibitCard,
-          { backgroundColor: bgCol, borderColor: 'rgba(255,255,255,0.12)' },
+          { backgroundColor: bgCol, borderColor: 'rgba(255,255,255,0.14)' },
         ]}
       >
-        {/* Крупная атмосферная обложка дня */}
+        {/* Атмосферная обложка дня */}
         <View style={styles.coverWrap}>
           {item.photoUri ? (
             <Image source={{ uri: item.photoUri }} style={styles.coverImage} />
@@ -91,32 +104,54 @@ export default function ArchiveScreen() {
           <View style={[styles.coverTint, { backgroundColor: accentCol }]} />
           <View style={[styles.coverShade, { backgroundColor: bgCol }]} />
 
-          {/* Верхний ярлык папки поверх обложки */}
+          {/* Верхний ряд: дата + счётчик альбома + палитра */}
           <View style={styles.coverTopRow}>
             <View style={styles.dirPill}>
               <View style={[styles.dirDot, { backgroundColor: accentCol }]} />
               <Text style={styles.dirText}>
-                День {folderNum} · {formatMemoryDate(item.date)}
+                #{folderNum} · {formatMemoryDate(item.date)}
               </Text>
             </View>
-            <View style={styles.paletteStrip}>
-              {item.style.palette.map((hex, i) => (
-                <View key={`${hex}-${i}`} style={[styles.swatch, { backgroundColor: hex }]} />
-              ))}
+
+            <View style={styles.coverRightPills}>
+              {photos.length > 1 ? (
+                <View style={styles.albumCountPill}>
+                  <Ionicons name="images-outline" size={11} color={lightCol} />
+                  <Text style={[styles.albumCountText, { color: lightCol }]}>
+                    {photos.length}
+                  </Text>
+                </View>
+              ) : null}
+              <View style={styles.paletteStrip}>
+                {(item.style.palette ?? []).map((hex, i) => (
+                  <View key={`${hex}-${i}`} style={[styles.swatch, { backgroundColor: hex }]} />
+                ))}
+              </View>
             </View>
           </View>
 
-          {/* Бейдж трека внизу обложки */}
-          <View style={styles.trackPill}>
-            <Ionicons name="musical-notes" size={12} color={accentCol} />
-            <Text style={[styles.trackPillText, { color: lightCol }]} numberOfLines={1}>
-              {item.track.artist} — {item.track.title}
-            </Text>
+          {/* Нижний ряд поверх обложки: трек + тег настроения */}
+          <View style={styles.coverBottomRow}>
+            <View style={styles.trackPill}>
+              <Ionicons name="musical-notes" size={12} color={accentCol} />
+              <Text style={[styles.trackPillText, { color: lightCol }]} numberOfLines={1}>
+                {item.track.artist} — {item.track.title}
+              </Text>
+            </View>
           </View>
         </View>
 
         {/* Инфо-блок папки */}
         <View style={styles.cardFooter}>
+          <View style={styles.moodTagRow}>
+            <Text style={[styles.moodTagText, { color: accentCol }]}>
+              {atmosphere.moodBadge}
+            </Text>
+            <Text style={styles.modeMiniCode}>
+              {modeMeta.code} // {modeMeta.shortTitle.toUpperCase()}
+            </Text>
+          </View>
+
           <Text
             style={[
               styles.folderTitle,
@@ -129,16 +164,16 @@ export default function ArchiveScreen() {
           </Text>
 
           <Text style={styles.snippet} numberOfLines={2}>
-            {item.text}
+            {atmosphere.cardCaption}
           </Text>
 
           <View style={styles.cardBottomMeta}>
-            <Text style={[styles.modeBadge, { color: accentCol }]}>
-              {modeMeta.code} · {modeMeta.shortTitle.toUpperCase()}
+            <Text style={styles.snippetTextPreview} numberOfLines={1}>
+              «{item.text}»
             </Text>
             <View style={styles.openHint}>
-              <Text style={styles.openHintText}>Открыть день</Text>
-              <Ionicons name="arrow-forward" size={14} color={THEME.colors.textMuted} />
+              <Text style={[styles.openHintText, { color: accentCol }]}>Открыть</Text>
+              <Ionicons name="arrow-forward" size={13} color={accentCol} />
             </View>
           </View>
         </View>
@@ -169,12 +204,18 @@ export default function ArchiveScreen() {
               <>
                 <Text style={styles.emptyTitle}>Войди в личный дневник</Text>
                 <Text style={styles.emptyText}>
-                  После входа все твои папки дней сохраняются и синхронизируются между устройствами.
+                  После входа твои папки дней сохраняются и синхронизируются между устройствами.
                 </Text>
-                <TouchableOpacity onPress={() => router.push('/auth/login')} style={styles.emptyButton}>
-                  <Text style={styles.emptyButtonText}>Войти</Text>
+                <TouchableOpacity
+                  onPress={() => router.push('/auth/login')}
+                  style={styles.emptyButton}
+                >
+                  <Text style={styles.emptyButtonText}>ВОЙТИ</Text>
                 </TouchableOpacity>
-                <TouchableOpacity onPress={() => router.push('/auth/register')} style={styles.emptyLink}>
+                <TouchableOpacity
+                  onPress={() => router.push('/auth/register')}
+                  style={styles.emptyLink}
+                >
                   <Text style={styles.emptyLinkText}>Создать аккаунт</Text>
                 </TouchableOpacity>
               </>
@@ -183,27 +224,30 @@ export default function ArchiveScreen() {
                 <Text style={styles.emptyTitle}>Не удалось загрузить галерею</Text>
                 <Text style={styles.emptyText}>{error}</Text>
                 <TouchableOpacity onPress={() => void loadDays()} style={styles.emptyButton}>
-                  <Text style={styles.emptyButtonText}>Повторить</Text>
+                  <Text style={styles.emptyButtonText}>ПОВТОРИТЬ</Text>
                 </TouchableOpacity>
               </>
             ) : selectedStyle !== 'all' ? (
               <>
                 <Text style={styles.emptyTitle}>В этом стиле пока нет дней</Text>
-                <TouchableOpacity onPress={() => setSelectedStyle('all')} style={styles.emptyButton}>
-                  <Text style={styles.emptyButtonText}>Показать все дни</Text>
+                <TouchableOpacity
+                  onPress={() => setSelectedStyle('all')}
+                  style={styles.emptyButton}
+                >
+                  <Text style={styles.emptyButtonText}>ПОКАЗАТЬ ВСЕ ДНИ</Text>
                 </TouchableOpacity>
               </>
             ) : (
               <>
-                <Text style={styles.emptyTitle}>Твой архив ещё ждёт первый день</Text>
+                <Text style={styles.emptyTitle}>Твой архив ждёт первый день</Text>
                 <Text style={styles.emptyText}>
-                  Опиши любимый день, приложи фото и песню — система соберёт первую страницу.
+                  Напиши пару строк, приложи 1–6 фото и песню — система соберёт первую страницу.
                 </Text>
                 <TouchableOpacity
                   onPress={() => router.push('/(tabs)/create')}
                   style={styles.emptyButton}
                 >
-                  <Text style={styles.emptyButtonText}>Записать первый день</Text>
+                  <Text style={styles.emptyButtonText}>ЗАПИСАТЬ ПЕРВЫЙ ДЕНЬ →</Text>
                 </TouchableOpacity>
               </>
             )}
@@ -211,60 +255,54 @@ export default function ArchiveScreen() {
         }
         ListHeaderComponent={
           <View style={styles.headerBlock}>
-            {/* Заголовок галереи */}
-            <View style={styles.heroRow}>
-              <View style={styles.heroTextWrap}>
-                <Text style={styles.heroEyebrow}>ЛИЧНЫЙ АРТ-ДНЕВНИК</Text>
-                <Text style={styles.heroTitle}>Атмосфера твоих дней</Text>
-              </View>
-              <TouchableOpacity
-                onPress={() => setGuideOpen(!isGuideVisible)}
-                style={[styles.helpChip, isGuideVisible && styles.helpChipActive]}
-              >
-                <Ionicons
-                  name="help-circle-outline"
-                  size={16}
-                  color={THEME.colors.accent}
-                />
-                <Text style={styles.helpChipText}>Гид</Text>
-              </TouchableOpacity>
-            </View>
+            {/* Хай-тек галерейный Hero-блок */}
+            <View style={styles.heroCard}>
+              <View style={styles.cornerTL} />
+              <View style={styles.cornerBR} />
 
-            {/* Понятный онбординг с первого взгляда */}
-            {isGuideVisible && (
-              <View style={styles.guideCard}>
-                <View style={styles.guideHeader}>
-                  <Text style={styles.guideTitle}>КАК СОХРАНИТЬ ДЕНЬ ЗА 30 СЕКУНД</Text>
-                  <TouchableOpacity onPress={() => setGuideOpen(false)}>
-                    <Text style={styles.guideClose}>Скрыть</Text>
-                  </TouchableOpacity>
-                </View>
-
-                <View style={styles.stepsRow}>
-                  <View style={styles.stepItem}>
-                    <Text style={styles.stepNum}>01</Text>
-                    <Text style={styles.stepLabel}>Напиши пару строк о дне</Text>
-                  </View>
-                  <View style={styles.stepItem}>
-                    <Text style={styles.stepNum}>02</Text>
-                    <Text style={styles.stepLabel}>Приложи фото и песню</Text>
-                  </View>
-                  <View style={styles.stepItem}>
-                    <Text style={styles.stepNum}>03</Text>
-                    <Text style={styles.stepLabel}>Получи арт-папку в архиве</Text>
-                  </View>
-                </View>
-
+              <View style={styles.heroTopRow}>
+                <Text style={styles.heroEyebrow}>• ARCHIVE.EXE // ARTTECH_DIARY</Text>
                 <TouchableOpacity
-                  style={styles.guideCta}
-                  onPress={() => router.push('/(tabs)/create')}
+                  onPress={() => router.push('/guide' as Href)}
+                  style={styles.guideChip}
+                  activeOpacity={0.8}
                 >
-                  <Text style={styles.guideCtaText}>Записать новый день →</Text>
+                  <Ionicons name="compass-outline" size={13} color={THEME.colors.accent} />
+                  <Text style={styles.guideChipText}>Гид</Text>
                 </TouchableOpacity>
               </View>
-            )}
 
-            {/* Фильтр по визуальным режимам, когда в ленте больше 1 стиля */}
+              <Text style={styles.heroTitle}>Атмосфера твоих дней_</Text>
+              <Text style={styles.heroSub}>
+                Каждый день собран из текста, альбома фото и саундтрека в единой визуальной системе.
+              </Text>
+
+              {/* Телеметрия архива */}
+              <View style={styles.telemetryStrip}>
+                <View style={styles.telemetryCell}>
+                  <Text style={styles.telemetryNum}>
+                    {String(items.length).padStart(2, '0')}
+                  </Text>
+                  <Text style={styles.telemetryLabel}>ПАПОК</Text>
+                </View>
+                <View style={styles.telemetryDiv} />
+                <View style={styles.telemetryCell}>
+                  <Text style={styles.telemetryNum}>
+                    {String(totalPhotos).padStart(2, '0')}
+                  </Text>
+                  <Text style={styles.telemetryLabel}>КАДРОВ</Text>
+                </View>
+                <View style={styles.telemetryDiv} />
+                <View style={styles.telemetryCell}>
+                  <Text style={styles.telemetryNum}>
+                    {String(availableStyles.length).padStart(2, '0')}/04
+                  </Text>
+                  <Text style={styles.telemetryLabel}>РЕЖИМОВ</Text>
+                </View>
+              </View>
+            </View>
+
+            {/* Фильтр по визуальным режимам */}
             {availableStyles.length > 1 ? (
               <ScrollView
                 horizontal
@@ -286,6 +324,7 @@ export default function ArchiveScreen() {
                 </TouchableOpacity>
                 {availableStyles.map((st) => {
                   const active = selectedStyle === st;
+                  const meta = ART_STYLE_META[st] ?? ART_STYLE_META.analog_film;
                   return (
                     <TouchableOpacity
                       key={st}
@@ -298,7 +337,7 @@ export default function ArchiveScreen() {
                           active && styles.filterChipTextActive,
                         ]}
                       >
-                        {ART_STYLE_META[st].shortTitle}
+                        {meta.code} · {meta.shortTitle}
                       </Text>
                     </TouchableOpacity>
                   );
@@ -308,8 +347,11 @@ export default function ArchiveScreen() {
 
             <View style={styles.sectionDivider}>
               <Text style={styles.sectionLabel}>
-                СОХРАНЁННЫЕ ПАПКИ ({filteredItems.length})
+                01 // СОХРАНЁННЫЕ ПАПКИ ({filteredItems.length})
               </Text>
+              <TouchableOpacity onPress={() => router.push('/guide' as Href)}>
+                <Text style={styles.sectionGuideLink}>Как работает система →</Text>
+              </TouchableOpacity>
             </View>
           </View>
         }
@@ -323,114 +365,109 @@ const styles = StyleSheet.create({
   list: {
     padding: THEME.spacing.md,
     gap: 18,
-    paddingBottom: 40,
+    paddingBottom: 44,
   },
-  headerBlock: { gap: 14, marginBottom: 4 },
-  heroRow: {
+  headerBlock: { gap: 14, marginBottom: 2 },
+  heroCard: {
+    position: 'relative',
+    backgroundColor: THEME.colors.surface,
+    borderWidth: 1,
+    borderColor: THEME.colors.borderStrong,
+    borderRadius: THEME.radius.md,
+    padding: 16,
+    gap: 8,
+  },
+  cornerTL: {
+    position: 'absolute',
+    top: -1,
+    left: -1,
+    width: 14,
+    height: 14,
+    borderTopWidth: 2,
+    borderLeftWidth: 2,
+    borderColor: THEME.colors.accent,
+    borderTopLeftRadius: THEME.radius.md,
+  },
+  cornerBR: {
+    position: 'absolute',
+    bottom: -1,
+    right: -1,
+    width: 14,
+    height: 14,
+    borderBottomWidth: 2,
+    borderRightWidth: 2,
+    borderColor: THEME.colors.warmGold,
+    borderBottomRightRadius: THEME.radius.md,
+  },
+  heroTopRow: {
     flexDirection: 'row',
-    alignItems: 'flex-end',
     justifyContent: 'space-between',
-    gap: 12,
+    alignItems: 'center',
+    gap: 8,
   },
-  heroTextWrap: { flex: 1, gap: 4 },
   heroEyebrow: {
     fontFamily: THEME.fonts.mono,
-    fontSize: 10,
-    letterSpacing: 1.6,
+    fontSize: 9,
+    letterSpacing: 1.4,
     color: THEME.colors.accent,
   },
-  heroTitle: {
-    fontFamily: THEME.fonts.serif,
-    fontSize: 28,
-    color: THEME.colors.text,
-    lineHeight: 34,
-  },
-  helpChip: {
+  guideChip: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
     borderWidth: 1,
     borderColor: THEME.colors.borderStrong,
     borderRadius: THEME.radius.pill,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    backgroundColor: THEME.colors.surface,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    backgroundColor: THEME.colors.surfaceElevated,
   },
-  helpChipActive: {
-    borderColor: THEME.colors.accent,
-    backgroundColor: THEME.colors.accentSoft,
-  },
-  helpChipText: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 11,
-    color: THEME.colors.text,
-  },
-  guideCard: {
-    backgroundColor: THEME.colors.surface,
-    borderWidth: 1,
-    borderColor: THEME.colors.borderStrong,
-    borderRadius: THEME.radius.md,
-    padding: 16,
-    gap: 14,
-  },
-  guideHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  guideTitle: {
+  guideChipText: {
     fontFamily: THEME.fonts.mono,
     fontSize: 10,
-    letterSpacing: 1.1,
+    color: THEME.colors.text,
+  },
+  heroTitle: {
+    fontFamily: THEME.fonts.serif,
+    fontSize: 27,
+    color: THEME.colors.text,
+    lineHeight: 33,
+  },
+  heroSub: {
     color: THEME.colors.textMuted,
+    fontSize: 12,
+    lineHeight: 18,
   },
-  guideClose: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 11,
-    color: THEME.colors.textDim,
-  },
-  stepsRow: {
+  telemetryStrip: {
     flexDirection: 'row',
-    gap: 10,
-  },
-  stepItem: {
-    flex: 1,
-    backgroundColor: THEME.colors.surfaceElevated,
-    borderRadius: THEME.radius.sm,
-    padding: 10,
-    gap: 6,
+    alignItems: 'center',
+    backgroundColor: THEME.colors.surfacePanel,
     borderWidth: 1,
     borderColor: THEME.colors.border,
-  },
-  stepNum: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 12,
-    fontWeight: '700',
-    color: THEME.colors.accent,
-  },
-  stepLabel: {
-    color: THEME.colors.text,
-    fontSize: 12,
-    lineHeight: 16,
-  },
-  guideCta: {
-    backgroundColor: THEME.colors.accentSoft,
-    borderWidth: 1,
-    borderColor: THEME.colors.accent,
     borderRadius: THEME.radius.sm,
-    paddingVertical: 11,
-    alignItems: 'center',
+    paddingVertical: 9,
+    paddingHorizontal: 10,
+    marginTop: 4,
   },
-  guideCtaText: {
+  telemetryCell: { flex: 1, alignItems: 'center', gap: 1 },
+  telemetryDiv: {
+    width: 1,
+    height: 22,
+    backgroundColor: THEME.colors.border,
+  },
+  telemetryNum: {
     fontFamily: THEME.fonts.mono,
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '700',
-    color: THEME.colors.accent,
+    color: THEME.colors.text,
   },
-  filterRow: {
-    gap: 8,
-    paddingVertical: 2,
+  telemetryLabel: {
+    fontFamily: THEME.fonts.mono,
+    fontSize: 8,
+    letterSpacing: 1,
+    color: THEME.colors.textDim,
   },
+  filterRow: { gap: 8, paddingVertical: 2 },
   filterChip: {
     paddingHorizontal: 13,
     paddingVertical: 7,
@@ -445,7 +482,7 @@ const styles = StyleSheet.create({
   },
   filterChipText: {
     fontFamily: THEME.fonts.mono,
-    fontSize: 11,
+    fontSize: 10,
     color: THEME.colors.textMuted,
   },
   filterChipTextActive: {
@@ -453,6 +490,9 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   sectionDivider: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     paddingTop: 4,
     borderBottomWidth: 1,
     borderBottomColor: THEME.colors.border,
@@ -461,8 +501,13 @@ const styles = StyleSheet.create({
   sectionLabel: {
     fontFamily: THEME.fonts.mono,
     fontSize: 10,
-    letterSpacing: 1.4,
+    letterSpacing: 1.2,
     color: THEME.colors.textDim,
+  },
+  sectionGuideLink: {
+    fontFamily: THEME.fonts.mono,
+    fontSize: 10,
+    color: THEME.colors.warmGold,
   },
   exhibitCard: {
     borderWidth: 1,
@@ -470,7 +515,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   coverWrap: {
-    height: 185,
+    height: 192,
     position: 'relative',
     justifyContent: 'space-between',
     padding: 12,
@@ -495,56 +540,72 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    height: 90,
-    opacity: 0.65,
+    height: 92,
+    opacity: 0.68,
   },
   coverTopRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    gap: 8,
+  },
+  coverRightPills: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   dirPill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: 'rgba(7, 7, 10, 0.72)',
+    backgroundColor: 'rgba(6, 6, 9, 0.76)',
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: THEME.radius.pill,
   },
-  dirDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 99,
-  },
+  dirDot: { width: 6, height: 6, borderRadius: 99 },
   dirText: {
     fontFamily: THEME.fonts.mono,
     fontSize: 9,
     letterSpacing: 1,
     color: THEME.colors.text,
   },
+  albumCountPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(6, 6, 9, 0.76)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: THEME.radius.xs,
+  },
+  albumCountText: {
+    fontFamily: THEME.fonts.mono,
+    fontSize: 9,
+    fontWeight: '700',
+  },
   paletteStrip: {
     flexDirection: 'row',
     gap: 4,
-    backgroundColor: 'rgba(7, 7, 10, 0.65)',
+    backgroundColor: 'rgba(6, 6, 9, 0.68)',
     padding: 5,
     borderRadius: THEME.radius.xs,
   },
-  swatch: {
-    width: 10,
-    height: 10,
-    borderRadius: 2,
+  swatch: { width: 10, height: 10, borderRadius: 2 },
+  coverBottomRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   trackPill: {
-    alignSelf: 'flex-start',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: 'rgba(7, 7, 10, 0.76)',
+    backgroundColor: 'rgba(6, 6, 9, 0.78)',
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: THEME.radius.pill,
-    maxWidth: '90%',
+    maxWidth: '92%',
   },
   trackPillText: {
     fontFamily: THEME.fonts.mono,
@@ -554,30 +615,48 @@ const styles = StyleSheet.create({
     padding: 16,
     gap: 8,
   },
+  moodTagRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 8,
+  },
+  moodTagText: {
+    fontFamily: THEME.fonts.mono,
+    fontSize: 9,
+    fontWeight: '700',
+    letterSpacing: 1,
+  },
+  modeMiniCode: {
+    fontFamily: THEME.fonts.mono,
+    fontSize: 9,
+    color: 'rgba(244, 239, 230, 0.45)',
+  },
   folderTitle: {
     fontSize: 20,
     fontWeight: '600',
     lineHeight: 26,
   },
   snippet: {
-    color: 'rgba(244, 239, 230, 0.68)',
-    fontSize: 13,
-    lineHeight: 19,
+    color: 'rgba(244, 239, 230, 0.72)',
+    fontSize: 12,
+    lineHeight: 18,
   },
   cardBottomMeta: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 6,
+    gap: 12,
+    marginTop: 4,
     paddingTop: 10,
     borderTopWidth: 1,
     borderTopColor: 'rgba(255,255,255,0.08)',
   },
-  modeBadge: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 0.9,
+  snippetTextPreview: {
+    flex: 1,
+    fontFamily: THEME.fonts.serif,
+    fontSize: 12,
+    color: 'rgba(244, 239, 230, 0.54)',
   },
   openHint: {
     flexDirection: 'row',
@@ -587,7 +666,7 @@ const styles = StyleSheet.create({
   openHintText: {
     fontFamily: THEME.fonts.mono,
     fontSize: 11,
-    color: THEME.colors.textMuted,
+    fontWeight: '700',
   },
   emptyState: {
     alignItems: 'center',
@@ -612,14 +691,15 @@ const styles = StyleSheet.create({
     borderColor: THEME.colors.accent,
     borderRadius: THEME.radius.pill,
     paddingHorizontal: 18,
-    paddingVertical: 10,
+    paddingVertical: 11,
     backgroundColor: THEME.colors.accentSoft,
   },
   emptyButtonText: {
     fontFamily: THEME.fonts.mono,
     color: THEME.colors.accent,
     fontWeight: '700',
-    fontSize: 12,
+    fontSize: 11,
+    letterSpacing: 0.8,
   },
   emptyLink: { padding: 6 },
   emptyLinkText: {

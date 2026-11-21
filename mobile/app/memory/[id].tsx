@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -21,8 +21,13 @@ import {
 import { captureRef } from 'react-native-view-shot';
 import * as Sharing from 'expo-sharing';
 import { ApiError, getDay, getErrorMessage } from '../../services/api';
-import { formatMemoryDate, MemoryDay } from '../../types/memory';
+import {
+  formatMemoryDate,
+  getMemoryPhotos,
+  MemoryDay,
+} from '../../types/memory';
 import { ART_STYLE_META, TYPOGRAPHY_LABELS } from '../../constants/artStyles';
+import { analyzeDayAtmosphere } from '../../services/atmosphereInterpreter';
 import { MemoryCanvas } from '../../components/MemoryCanvas';
 import { THEME } from '../../constants/theme';
 
@@ -49,6 +54,7 @@ export default function MemoryDetailScreen() {
     needsAuth: boolean;
   } | null>(null);
 
+  const [activePhotoIndex, setActivePhotoIndex] = useState(0);
   const [audioError, setAudioError] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
@@ -56,6 +62,7 @@ export default function MemoryDetailScreen() {
 
   useEffect(() => {
     let active = true;
+    setActivePhotoIndex(0);
 
     if (!id) return;
 
@@ -96,6 +103,15 @@ export default function MemoryDetailScreen() {
     resultForId?.error ?? (id ? null : 'Не указан идентификатор записи.');
   const needsAuth = resultForId?.needsAuth ?? false;
 
+  const photos = useMemo(
+    () => (memory ? getMemoryPhotos(memory) : []),
+    [memory]
+  );
+  const atmosphere = useMemo(
+    () => (memory ? analyzeDayAtmosphere(memory) : null),
+    [memory]
+  );
+
   const previewUrl = memory?.track.previewUrl || '';
   const player = useAudioPlayer(previewUrl || null);
   const status = useAudioPlayerStatus(player);
@@ -125,9 +141,7 @@ export default function MemoryDetailScreen() {
     if (!memory) return;
 
     if (!previewUrl) {
-      setAudioError(
-        'У этого трека нет доступного 30-секундного фрагмента.'
-      );
+      setAudioError('У этого трека нет доступного 30-секундного фрагмента.');
       return;
     }
 
@@ -142,7 +156,6 @@ export default function MemoryDetailScreen() {
 
   const openTrackExternal = () => {
     const url = memory?.track.trackUrl;
-
     if (!url) return;
 
     void Linking.openURL(url).catch(() => {
@@ -175,7 +188,6 @@ export default function MemoryDetailScreen() {
       });
 
       const canShare = await Sharing.isAvailableAsync();
-
       if (!canShare) {
         setExportError(
           'Системное меню сохранения недоступно на этом устройстве.'
@@ -199,13 +211,13 @@ export default function MemoryDetailScreen() {
       <SafeAreaView style={styles.safe}>
         <View style={styles.center}>
           <ActivityIndicator color={THEME.colors.accent} />
-          <Text style={styles.loadingText}>Открываем страницу дня…</Text>
+          <Text style={styles.loadingText}>Открываем папку дня…</Text>
         </View>
       </SafeAreaView>
     );
   }
 
-  if (!memory) {
+  if (!memory || !atmosphere) {
     return (
       <SafeAreaView style={styles.safe}>
         <View style={styles.center}>
@@ -254,7 +266,10 @@ export default function MemoryDetailScreen() {
           <Text style={styles.backText}>Галерея</Text>
         </TouchableOpacity>
 
-        <Text style={styles.topDate}>{formatMemoryDate(memory.date)}</Text>
+        <View style={styles.topRight}>
+          <Text style={styles.topTag}>[FOLDER.EXE]</Text>
+          <Text style={styles.topDate}>{formatMemoryDate(memory.date)}</Text>
+        </View>
       </View>
 
       <ScrollView
@@ -263,8 +278,60 @@ export default function MemoryDetailScreen() {
       >
         {/* Визуальное воспоминание */}
         <View ref={cardRef} collapsable={false} style={styles.captureWrap}>
-          <MemoryCanvas memory={memory} isPlaying={isPlaying} />
+          <MemoryCanvas
+            memory={memory}
+            isPlaying={isPlaying}
+            activePhotoIndex={activePhotoIndex}
+            onSelectPhoto={setActivePhotoIndex}
+          />
         </View>
+
+        {/* Лента альбома, если в дне несколько фотографий */}
+        {photos.length > 1 ? (
+          <View style={styles.albumCard}>
+            <View style={styles.cardHeaderRow}>
+              <Text style={styles.cardEyebrow}>
+                01 // АЛЬБОМ ДНЯ ({photos.length} КАДРОВ)
+              </Text>
+              <Text style={[styles.tempoPill, { color: accentCol }]}>
+                КАДР 0{activePhotoIndex + 1} / 0{photos.length}
+              </Text>
+            </View>
+
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.filmstrip}
+            >
+              {photos.map((uri, idx) => {
+                const active = idx === activePhotoIndex;
+                return (
+                  <TouchableOpacity
+                    key={`${uri}-${idx}`}
+                    onPress={() => setActivePhotoIndex(idx)}
+                    activeOpacity={0.82}
+                    style={[
+                      styles.thumbItem,
+                      active && { borderColor: accentCol, borderWidth: 2 },
+                    ]}
+                  >
+                    <Image source={{ uri }} style={styles.thumbImg} />
+                    <View style={styles.thumbNumBadge}>
+                      <Text
+                        style={[
+                          styles.thumbNumText,
+                          active && { color: accentCol },
+                        ]}
+                      >
+                        0{idx + 1}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        ) : null}
 
         {/* Кнопка экспорта PNG */}
         <TouchableOpacity
@@ -345,7 +412,6 @@ export default function MemoryDetailScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* Прогресс воспроизведения */}
           {previewUrl ? (
             <View style={styles.progressBlock}>
               <View style={styles.progressTrack}>
@@ -364,7 +430,6 @@ export default function MemoryDetailScreen() {
                 <Text style={styles.timeText}>
                   {formatSec(status.currentTime)}
                 </Text>
-
                 <Text style={styles.timeText}>
                   {status.duration > 0 ? formatSec(status.duration) : '0:30'}
                 </Text>
@@ -372,7 +437,6 @@ export default function MemoryDetailScreen() {
             </View>
           ) : null}
 
-          {/* Ссылка на полную версию трека */}
           {memory.track.trackUrl ? (
             <TouchableOpacity
               onPress={openTrackExternal}
@@ -398,14 +462,19 @@ export default function MemoryDetailScreen() {
           </Text>
         </View>
 
-        {/* Объяснимая логика визуальной системы */}
-        <View style={styles.card}>
+        {/* Уникальный кураторский разбор конкретного дня */}
+        <View style={styles.systemCard}>
+          <View style={styles.cornerTL} />
+          <View style={styles.cornerBR} />
+
           <TouchableOpacity
             style={styles.cardHeaderRow}
             onPress={() => setShowSystemDetails((prev) => !prev)}
             activeOpacity={0.75}
           >
-            <Text style={styles.cardEyebrow}>ПОЧЕМУ ДЕНЬ ВЫГЛЯДИТ ТАК</Text>
+            <Text style={styles.cardEyebrow}>
+              LOGIC.EXE // ПОЧЕМУ ЭТОТ ДЕНЬ ВЫГЛЯДИТ ТАК
+            </Text>
             <Ionicons
               name={showSystemDetails ? 'chevron-up' : 'chevron-down'}
               size={16}
@@ -413,30 +482,46 @@ export default function MemoryDetailScreen() {
             />
           </TouchableOpacity>
 
-          <Text style={styles.systemTitle}>{modeMeta.shortTitle}</Text>
-          <Text style={styles.systemPrinciple}>{modeMeta.principle}</Text>
+          <View style={styles.moodHeaderRow}>
+            <View style={[styles.moodTag, { borderColor: accentCol }]}>
+              <Text style={[styles.moodTagText, { color: accentCol }]}>
+                {atmosphere.moodBadge}
+              </Text>
+            </View>
+            <Text style={styles.modeMiniLabel}>{modeMeta.shortTitle}</Text>
+          </View>
+
+          <Text style={styles.curatorSummary}>{atmosphere.curatorSummary}</Text>
 
           {showSystemDetails ? (
-            <View style={styles.specGrid}>
-              <View style={styles.specRow}>
-                <Text style={styles.specKey}>Референс</Text>
-                <Text style={styles.specVal}>{modeMeta.reference}</Text>
+            <View style={styles.driversCol}>
+              <View style={styles.driverRow}>
+                <Text style={styles.driverIndex}>01 // ТЕКСТ</Text>
+                <Text style={styles.driverText}>{atmosphere.drivers.text}</Text>
               </View>
 
-              <View style={styles.specRow}>
-                <Text style={styles.specKey}>Влияние музыки</Text>
-                <Text style={styles.specVal}>
-                  Энергия {Math.round((memory.track.energy ?? 0.5) * 100)}% →
-                  ритм {memory.style.motionSpeed.toFixed(1)}x
+              <View style={styles.driverRow}>
+                <Text style={styles.driverIndex}>02 // ПАЛИТРА И СВЕТ</Text>
+                <Text style={styles.driverText}>
+                  {atmosphere.drivers.palette}
                 </Text>
               </View>
 
-              <View style={styles.specRow}>
-                <Text style={styles.specKey}>Фактура зерна</Text>
-                <Text style={styles.specVal}>
-                  {Math.round(memory.style.grainIntensity * 100)}%
+              <View style={styles.driverRow}>
+                <Text style={styles.driverIndex}>03 // МУЗЫКА И РИТМ</Text>
+                <Text style={styles.driverText}>
+                  {atmosphere.drivers.music}
                 </Text>
               </View>
+
+              <View style={styles.driverRow}>
+                <Text style={styles.driverIndex}>04 // АЛЬБОМ И ПРИЁМ</Text>
+                <Text style={styles.driverText}>
+                  {atmosphere.drivers.album}
+                </Text>
+              </View>
+
+              <View style={styles.metaDivider} />
 
               <View style={styles.specRow}>
                 <Text style={styles.specKey}>Типографика</Text>
@@ -448,7 +533,6 @@ export default function MemoryDetailScreen() {
 
               <View style={styles.paletteRow}>
                 <Text style={styles.specKey}>Палитра дня</Text>
-
                 <View style={styles.paletteChips}>
                   {(memory.style.palette ?? []).map((hex, idx) => (
                     <View key={`${hex}-${idx}`} style={styles.paletteChip}>
@@ -469,10 +553,7 @@ export default function MemoryDetailScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe: {
-    flex: 1,
-    backgroundColor: THEME.colors.bg,
-  },
+  safe: { flex: 1, backgroundColor: THEME.colors.bg },
   center: {
     flex: 1,
     justifyContent: 'center',
@@ -480,20 +561,9 @@ const styles = StyleSheet.create({
     gap: 12,
     padding: 24,
   },
-  loadingText: {
-    color: THEME.colors.textMuted,
-    fontSize: 14,
-  },
-  errorText: {
-    color: THEME.colors.text,
-    fontSize: 14,
-    textAlign: 'center',
-  },
-  audioError: {
-    color: THEME.colors.danger,
-    fontSize: 12,
-    lineHeight: 18,
-  },
+  loadingText: { color: THEME.colors.textMuted, fontSize: 14 },
+  errorText: { color: THEME.colors.text, fontSize: 14, textAlign: 'center' },
+  audioError: { color: THEME.colors.danger, fontSize: 12, lineHeight: 18 },
   backLink: {
     fontFamily: THEME.fonts.mono,
     color: THEME.colors.accent,
@@ -520,6 +590,13 @@ const styles = StyleSheet.create({
     fontSize: 17,
     color: THEME.colors.text,
   },
+  topRight: { alignItems: 'flex-end', gap: 1 },
+  topTag: {
+    fontFamily: THEME.fonts.mono,
+    fontSize: 9,
+    letterSpacing: 1.2,
+    color: THEME.colors.accent,
+  },
   topDate: {
     fontFamily: THEME.fonts.mono,
     fontSize: 11,
@@ -528,13 +605,47 @@ const styles = StyleSheet.create({
   scroll: {
     padding: THEME.spacing.md,
     gap: 16,
-    paddingBottom: 44,
+    paddingBottom: 48,
   },
   captureWrap: {
     alignSelf: 'center',
     overflow: 'hidden',
     backgroundColor: THEME.colors.bg,
     borderRadius: THEME.radius.md,
+  },
+  albumCard: {
+    backgroundColor: THEME.colors.surface,
+    borderWidth: 1,
+    borderColor: THEME.colors.border,
+    borderRadius: THEME.radius.md,
+    padding: 14,
+    gap: 10,
+  },
+  filmstrip: { gap: 8 },
+  thumbItem: {
+    width: 64,
+    height: 64,
+    borderRadius: THEME.radius.sm,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: THEME.colors.borderStrong,
+    backgroundColor: THEME.colors.surfaceElevated,
+  },
+  thumbImg: { width: '100%', height: '100%', resizeMode: 'cover' },
+  thumbNumBadge: {
+    position: 'absolute',
+    bottom: 4,
+    left: 4,
+    backgroundColor: 'rgba(6, 6, 9, 0.78)',
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 4,
+  },
+  thumbNumText: {
+    fontFamily: THEME.fonts.mono,
+    fontSize: 9,
+    color: THEME.colors.text,
+    fontWeight: '700',
   },
   exportBtn: {
     flexDirection: 'row',
@@ -548,9 +659,7 @@ const styles = StyleSheet.create({
     borderColor: THEME.colors.borderStrong,
     backgroundColor: THEME.colors.surface,
   },
-  exportBtnDisabled: {
-    opacity: 0.6,
-  },
+  exportBtnDisabled: { opacity: 0.6 },
   exportBtnText: {
     fontFamily: THEME.fonts.mono,
     fontSize: 11,
@@ -566,15 +675,47 @@ const styles = StyleSheet.create({
     padding: 16,
     gap: 12,
   },
+  systemCard: {
+    position: 'relative',
+    backgroundColor: THEME.colors.surface,
+    borderWidth: 1,
+    borderColor: THEME.colors.borderStrong,
+    borderRadius: THEME.radius.md,
+    padding: 16,
+    gap: 12,
+  },
+  cornerTL: {
+    position: 'absolute',
+    top: -1,
+    left: -1,
+    width: 14,
+    height: 14,
+    borderTopWidth: 2,
+    borderLeftWidth: 2,
+    borderColor: THEME.colors.accent,
+    borderTopLeftRadius: THEME.radius.md,
+  },
+  cornerBR: {
+    position: 'absolute',
+    bottom: -1,
+    right: -1,
+    width: 14,
+    height: 14,
+    borderBottomWidth: 2,
+    borderRightWidth: 2,
+    borderColor: THEME.colors.warmGold,
+    borderBottomRightRadius: THEME.radius.md,
+  },
   cardHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    gap: 8,
   },
   cardEyebrow: {
     fontFamily: THEME.fonts.mono,
     fontSize: 10,
-    letterSpacing: 1.3,
+    letterSpacing: 1.2,
     color: THEME.colors.textDim,
   },
   tempoPill: {
@@ -601,19 +742,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  trackMeta: {
-    flex: 1,
-    gap: 3,
-  },
-  trackTitle: {
-    color: THEME.colors.text,
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  trackSub: {
-    color: THEME.colors.textMuted,
-    fontSize: 12,
-  },
+  trackMeta: { flex: 1, gap: 3 },
+  trackTitle: { color: THEME.colors.text, fontSize: 15, fontWeight: '700' },
+  trackSub: { color: THEME.colors.textMuted, fontSize: 12 },
   playBtn: {
     width: 44,
     height: 44,
@@ -622,23 +753,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  progressBlock: {
-    gap: 6,
-  },
+  progressBlock: { gap: 6 },
   progressTrack: {
     height: 3,
     backgroundColor: THEME.colors.borderStrong,
     borderRadius: 99,
     overflow: 'hidden',
   },
-  progressFill: {
-    height: '100%',
-    borderRadius: 99,
-  },
-  progressMeta: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
+  progressFill: { height: '100%', borderRadius: 99 },
+  progressMeta: { flexDirection: 'row', justifyContent: 'space-between' },
   timeText: {
     fontFamily: THEME.fonts.mono,
     fontSize: 10,
@@ -650,57 +773,82 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingTop: 4,
   },
-  externalLinkText: {
-    fontFamily: THEME.fonts.mono,
-    fontSize: 11,
-  },
+  externalLinkText: { fontFamily: THEME.fonts.mono, fontSize: 11 },
   entryText: {
     fontFamily: THEME.fonts.serif,
     fontSize: 16,
     lineHeight: 25,
   },
-  systemTitle: {
-    fontFamily: THEME.fonts.serif,
-    fontSize: 19,
-    color: THEME.colors.text,
+  moodHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
   },
-  systemPrinciple: {
-    fontSize: 13,
-    lineHeight: 19,
+  moodTag: {
+    borderWidth: 1,
+    borderRadius: THEME.radius.xs,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    backgroundColor: THEME.colors.surfacePanel,
+  },
+  moodTagText: {
+    fontFamily: THEME.fonts.mono,
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1,
+  },
+  modeMiniLabel: {
+    fontFamily: THEME.fonts.serif,
+    fontSize: 15,
     color: THEME.colors.textMuted,
   },
-  specGrid: {
-    gap: 10,
-    paddingTop: 4,
+  curatorSummary: {
+    color: THEME.colors.text,
+    fontSize: 13,
+    lineHeight: 20,
+  },
+  driversCol: { gap: 10, paddingTop: 2 },
+  driverRow: {
+    backgroundColor: THEME.colors.surfacePanel,
+    borderWidth: 1,
+    borderColor: THEME.colors.border,
+    borderRadius: THEME.radius.sm,
+    padding: 11,
+    gap: 4,
+  },
+  driverIndex: {
+    fontFamily: THEME.fonts.mono,
+    fontSize: 9,
+    fontWeight: '700',
+    letterSpacing: 1.1,
+    color: THEME.colors.warmGold,
+  },
+  driverText: {
+    color: THEME.colors.textMuted,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  metaDivider: {
+    height: 1,
+    backgroundColor: THEME.colors.border,
+    marginVertical: 2,
   },
   specRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
     gap: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: THEME.colors.border,
-    paddingBottom: 8,
   },
-  specKey: {
-    fontSize: 12,
-    color: THEME.colors.textDim,
-  },
+  specKey: { fontSize: 12, color: THEME.colors.textDim },
   specVal: {
     flex: 1,
     textAlign: 'right',
     fontSize: 12,
     color: THEME.colors.text,
   },
-  paletteRow: {
-    gap: 8,
-    paddingTop: 2,
-  },
-  paletteChips: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
+  paletteRow: { gap: 8, paddingTop: 2 },
+  paletteChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   paletteChip: {
     flexDirection: 'row',
     alignItems: 'center',

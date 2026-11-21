@@ -2,19 +2,25 @@ import { Platform } from 'react-native';
 
 export const THEME = {
   colors: {
-    bg: '#07070A',
-    surface: '#101015',
-    surfaceElevated: '#17171F',
-    glass: 'rgba(18, 18, 24, 0.92)',
+    bg: '#060609',
+    surface: '#0E0E14',
+    surfaceElevated: '#15151E',
+    surfacePanel: '#0A0A10',
+    glass: 'rgba(14, 14, 20, 0.94)',
     border: 'rgba(255, 255, 255, 0.09)',
-    borderStrong: 'rgba(255, 255, 255, 0.18)',
+    borderStrong: 'rgba(255, 255, 255, 0.2)',
     borderFocus: '#D8FF4B',
-    text: '#F4EFE6',          // Тёплая выставочная бумага вместо холодного белого
-    textMuted: '#9895A3',
-    textDim: '#5B5966',
-    accent: '#D8FF4B',        // Сдержанный ArtTech-лайм
-    accentSoft: 'rgba(216, 255, 75, 0.14)',
-    accentText: '#07070A',
+    gridLine: 'rgba(255, 255, 255, 0.045)',
+    text: '#F4EFE6',          // Тёплая выставочная бумага
+    textMuted: '#9B98A8',
+    textDim: '#605D6E',
+    accent: '#D8FF4B',        // Сигнальный ArtTech-лайм
+    accentSoft: 'rgba(216, 255, 75, 0.13)',
+    accentGlow: 'rgba(216, 255, 75, 0.34)',
+    accentText: '#060609',
+    warmGold: '#E8C58E',      // Галерейная изюминка: тёплый охристый акцент
+    warmGoldSoft: 'rgba(232, 197, 142, 0.13)',
+    cyanSignal: '#7FE3FF',    // Вспомогательный хай-тек телеметрический акцент
     danger: '#FF5454',
   },
   fonts: {

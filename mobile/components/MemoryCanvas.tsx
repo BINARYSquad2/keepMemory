@@ -16,22 +16,17 @@ import {
   useDerivedValue,
   withRepeat,
   withTiming,
+  cancelAnimation,
   Easing,
 } from 'react-native-reanimated';
-import { ArtStyle, formatMemoryDate, MemoryDay } from '../types/memory';
+import { formatMemoryDate, MemoryDay } from '../types/memory';
+import { ART_STYLE_META } from '../constants/artStyles';
 import { THEME } from '../constants/theme';
 
 interface MemoryCanvasProps {
   memory: MemoryDay;
   isPlaying?: boolean;
 }
-
-const MODE_LABELS: Record<ArtStyle, string> = {
-  analog_film: '01 // ANALOG FILM',
-  minimal_editorial: '02 // EDITORIAL GRID',
-  dreamy_aura: '03 // ETHEREAL AURA',
-  kinetic_zine: '04 // KINETIC ZINE',
-};
 
 function buildGrainDots(seedKey: string, width: number, height: number, count: number) {
   let seed = 0;
@@ -52,68 +47,107 @@ function buildGrainDots(seedKey: string, width: number, height: number, count: n
   }));
 }
 
-export function MemoryCanvas({ memory, isPlaying = true }: MemoryCanvasProps) {
+export function MemoryCanvas({ memory, isPlaying = false }: MemoryCanvasProps) {
   const { width: screenWidth } = useWindowDimensions();
   const cardWidth = Math.min(screenWidth - 32, 420);
   const innerWidth = cardWidth - 2;
   const photoHeight = Math.round(cardWidth * 1.18);
 
-  const image = useImage(memory.photoUri);
+  const image = useImage(/^blob:/i.test(memory.photoUri) ? null : memory.photoUri);
   const { style, track } = memory;
   const [bgCol, accentCol, lightCol] = style.palette;
+  const energy = Math.min(1, Math.max(0.15, track.energy ?? 0.5));
+  const modeMeta = ART_STYLE_META[style.artStyle];
 
+  // pulse — основной цикл движения; activity — усиление при включённой музыке
   const pulse = useSharedValue(0);
+  const activity = useSharedValue(isPlaying ? 1 : 0.35);
 
   useEffect(() => {
-    if (!isPlaying) return;
     const speed = Math.max(0.25, style.motionSpeed);
-    const duration = Math.max(650, Math.round(3000 / speed));
+    const activeDuration = Math.max(520, Math.round(2300 / speed));
+    const idleDuration = Math.max(2600, Math.round(5200 / speed));
 
+    cancelAnimation(pulse);
     pulse.value = withRepeat(
-      withTiming(1, { duration, easing: Easing.inOut(Easing.sin) }),
+      withTiming(1, {
+        duration: isPlaying ? activeDuration : idleDuration,
+        easing: Easing.inOut(Easing.sin),
+      }),
       -1,
       true
     );
+
+    activity.value = withTiming(isPlaying ? 1 : 0.35, { duration: 420 });
+
+    return () => {
+      cancelAnimation(pulse);
+    };
   }, [style.motionSpeed, isPlaying]);
 
-  // Живые координаты для каждого художественного режима
+  // 01: Analog Film — двойная засветка
   const leakCenter = useDerivedValue(() =>
     vec(
-      innerWidth * (0.15 + pulse.value * 0.7),
-      photoHeight * (0.14 + pulse.value * 0.28)
+      innerWidth * (0.12 + pulse.value * (0.55 + activity.value * 0.2)),
+      photoHeight * (0.12 + pulse.value * 0.26)
     )
   );
-  const leakRadius = useDerivedValue(() => innerWidth * (0.5 + pulse.value * 0.22));
-
-  const auraTopCenter = useDerivedValue(() =>
-    vec(
-      innerWidth * (0.25 + pulse.value * 0.5),
-      photoHeight * (0.28 - pulse.value * 0.1)
-    )
+  const leakRadius = useDerivedValue(
+    () => innerWidth * (0.46 + pulse.value * 0.18 * activity.value)
   );
-  const auraBottomCenter = useDerivedValue(() =>
-    vec(
-      innerWidth * (0.78 - pulse.value * 0.48),
-      photoHeight * (0.72 + pulse.value * 0.08)
-    )
+  const warmCornerCenter = useDerivedValue(() =>
+    vec(innerWidth * (0.88 - pulse.value * 0.16), photoHeight * (0.86 - pulse.value * 0.1))
   );
-  const auraRadius = useDerivedValue(() => innerWidth * (0.58 + pulse.value * 0.16));
 
-  const ringRadius = useDerivedValue(() => 14 + pulse.value * 16);
-  const ringOuterRadius = useDerivedValue(() => 24 + pulse.value * 24);
+  // 02 & 04: Кольца ритма
+  const ringRadius = useDerivedValue(() => 12 + pulse.value * (10 + energy * 14) * activity.value);
+  const ringOuterRadius = useDerivedValue(
+    () => 22 + pulse.value * (16 + energy * 18) * activity.value
+  );
 
-  const beamP1 = useDerivedValue(() => vec(-20, photoHeight * (0.18 + pulse.value * 0.35)));
+  // 03: Dreamy Aura — 3 плавающих импрессионистских световых ореола
+  const aura1Center = useDerivedValue(() =>
+    vec(innerWidth * (0.22 + pulse.value * 0.54), photoHeight * (0.24 + pulse.value * 0.12))
+  );
+  const aura2Center = useDerivedValue(() =>
+    vec(innerWidth * (0.8 - pulse.value * 0.5), photoHeight * (0.68 - pulse.value * 0.16))
+  );
+  const aura3Center = useDerivedValue(() =>
+    vec(innerWidth * (0.48 + (0.5 - pulse.value) * 0.32), photoHeight * (0.46 + pulse.value * 0.14))
+  );
+  const auraRadius = useDerivedValue(() => innerWidth * (0.52 + pulse.value * 0.18));
+
+  // 04: Kinetic Geometry — диагональные векторы Кандинского
+  const beamP1 = useDerivedValue(() =>
+    vec(-20, photoHeight * (0.2 + pulse.value * 0.32 * activity.value))
+  );
   const beamP2 = useDerivedValue(() =>
-    vec(innerWidth + 20, photoHeight * (0.04 + pulse.value * 0.2))
+    vec(innerWidth + 20, photoHeight * (0.04 + pulse.value * 0.22 * activity.value))
   );
-  const beam2P1 = useDerivedValue(() => vec(-20, photoHeight * (0.75 - pulse.value * 0.25)));
+  const beam2P1 = useDerivedValue(() =>
+    vec(-20, photoHeight * (0.76 - pulse.value * 0.24 * activity.value))
+  );
   const beam2P2 = useDerivedValue(() =>
-    vec(innerWidth + 20, photoHeight * (0.55 - pulse.value * 0.15))
+    vec(innerWidth + 20, photoHeight * (0.56 - pulse.value * 0.16 * activity.value))
   );
+  const kineticDotX = useDerivedValue(() => innerWidth * (0.2 + pulse.value * 0.6));
 
+  // Общая полоса музыкального ритма + 5 живых столбиков эквалайзера
+  const barBaseY = photoHeight - 16;
   const rhythmBarWidth = useDerivedValue(
-    () => (innerWidth - 36) * (0.18 + pulse.value * 0.82)
+    () => (innerWidth - 88) * (0.18 + pulse.value * (0.45 + energy * 0.37) * activity.value)
   );
+  const eqH1 = useDerivedValue(() => 4 + (0.3 + pulse.value * 0.7) * (8 + energy * 12) * activity.value);
+  const eqH2 = useDerivedValue(() => 5 + (1 - Math.abs(pulse.value - 0.5) * 2) * (10 + energy * 16) * activity.value);
+  const eqH3 = useDerivedValue(() => 4 + (1 - pulse.value * 0.75) * (9 + energy * 15) * activity.value);
+  const eqH4 = useDerivedValue(() => 5 + (0.25 + pulse.value * 0.75) * (10 + energy * 14) * activity.value);
+  const eqH5 = useDerivedValue(() => 3 + (1 - pulse.value * 0.6) * (7 + energy * 10) * activity.value);
+
+  const eqY1 = useDerivedValue(() => barBaseY - eqH1.value);
+  const eqY2 = useDerivedValue(() => barBaseY - eqH2.value);
+  const eqY3 = useDerivedValue(() => barBaseY - eqH3.value);
+  const eqY4 = useDerivedValue(() => barBaseY - eqH4.value);
+  const eqY5 = useDerivedValue(() => barBaseY - eqH5.value);
 
   const grainCount = Math.round(style.grainIntensity * 190);
   const grainDots = useMemo(
@@ -122,6 +156,7 @@ export function MemoryCanvas({ memory, isPlaying = true }: MemoryCanvasProps) {
   );
 
   const isSerif = style.typographyVariant === 'serif_editorial';
+  const eqStartX = innerWidth - 52;
 
   return (
     <View
@@ -137,13 +172,18 @@ export function MemoryCanvas({ memory, isPlaying = true }: MemoryCanvasProps) {
       {/* Единый выставочный заголовок страницы */}
       <View style={styles.metaBar}>
         <View style={styles.metaLeft}>
-          <View style={[styles.liveDot, { backgroundColor: accentCol }]} />
+          <View
+            style={[
+              styles.liveDot,
+              { backgroundColor: accentCol, opacity: isPlaying ? 1 : 0.6 },
+            ]}
+          />
           <Text style={[styles.metaMono, { color: lightCol }]}>
             {formatMemoryDate(memory.date).toUpperCase()}
           </Text>
         </View>
         <Text style={[styles.metaMono, { color: accentCol }]}>
-          {MODE_LABELS[style.artStyle]}
+          {modeMeta.canvasLabel}
         </Text>
       </View>
 
@@ -153,7 +193,7 @@ export function MemoryCanvas({ memory, isPlaying = true }: MemoryCanvasProps) {
           {/* Базовый цвет */}
           <Rect x={0} y={0} width={innerWidth} height={photoHeight} color={bgCol} />
 
-          {/* Реальная фотография */}
+          {/* Реальная фотография пользователя */}
           {image && (
             <SkiaImage
               image={image}
@@ -165,13 +205,13 @@ export function MemoryCanvas({ memory, isPlaying = true }: MemoryCanvasProps) {
             />
           )}
 
-          {/* Атмосферная тонировка из палитры дня */}
+          {/* Атмосферная цветовая тонировка дня */}
           <Rect
             x={0}
             y={0}
             width={innerWidth}
             height={photoHeight}
-            opacity={style.artStyle === 'kinetic_zine' ? 0.36 : 0.25}
+            opacity={style.artStyle === 'kinetic_zine' ? 0.34 : 0.24}
           >
             <LinearGradient
               start={vec(0, 0)}
@@ -180,7 +220,7 @@ export function MemoryCanvas({ memory, isPlaying = true }: MemoryCanvasProps) {
             />
           </Rect>
 
-          {/* Мягкое верхнее и нижнее затемнение (глубина + читаемость) */}
+          {/* Мягкая верхняя и нижняя виньетка глубины */}
           <Rect x={0} y={0} width={innerWidth} height={photoHeight * 0.26} opacity={0.55}>
             <LinearGradient
               start={vec(0, 0)}
@@ -188,29 +228,32 @@ export function MemoryCanvas({ memory, isPlaying = true }: MemoryCanvasProps) {
               colors={[bgCol, 'transparent']}
             />
           </Rect>
-          <Rect
-            x={0}
-            y={photoHeight * 0.52}
-            width={innerWidth}
-            height={photoHeight * 0.48}
-          >
+          <Rect x={0} y={photoHeight * 0.54} width={innerWidth} height={photoHeight * 0.46}>
             <LinearGradient
-              start={vec(0, photoHeight * 0.52)}
+              start={vec(0, photoHeight * 0.54)}
               end={vec(0, photoHeight)}
               colors={['transparent', bgCol]}
             />
           </Rect>
 
-          {/* РЕЖИМ 1: ANALOG FILM — живая засветка + плёночная рамка */}
+          {/* РЕЖИМ 01: ANALOG FILM 35MM — тёплая засветка + видоискатель */}
           {style.artStyle === 'analog_film' && (
             <>
-              <Rect x={0} y={0} width={innerWidth} height={photoHeight} opacity={0.48}>
+              <Rect x={0} y={0} width={innerWidth} height={photoHeight} opacity={0.46}>
                 <RadialGradient
                   c={leakCenter}
                   r={leakRadius}
                   colors={[accentCol, 'transparent']}
                 />
               </Rect>
+              <Rect x={0} y={0} width={innerWidth} height={photoHeight} opacity={0.22}>
+                <RadialGradient
+                  c={warmCornerCenter}
+                  r={innerWidth * 0.48}
+                  colors={[lightCol, 'transparent']}
+                />
+              </Rect>
+              {/* Тонкая рамка кадра */}
               <Rect
                 x={12}
                 y={12}
@@ -218,13 +261,20 @@ export function MemoryCanvas({ memory, isPlaying = true }: MemoryCanvasProps) {
                 height={photoHeight - 24}
                 color={lightCol}
                 style="stroke"
-                strokeWidth={0.8}
-                opacity={0.35}
+                strokeWidth={0.75}
+                opacity={0.32}
               />
+              {/* Уголки видоискателя 35mm */}
+              <Line p1={vec(20, 20)} p2={vec(36, 20)} color={lightCol} strokeWidth={1.4} opacity={0.75} />
+              <Line p1={vec(20, 20)} p2={vec(20, 36)} color={lightCol} strokeWidth={1.4} opacity={0.75} />
+              <Line p1={vec(innerWidth - 20, 20)} p2={vec(innerWidth - 36, 20)} color={lightCol} strokeWidth={1.4} opacity={0.75} />
+              <Line p1={vec(innerWidth - 20, 20)} p2={vec(innerWidth - 20, 36)} color={lightCol} strokeWidth={1.4} opacity={0.75} />
+              <Line p1={vec(20, photoHeight - 30)} p2={vec(36, photoHeight - 30)} color={lightCol} strokeWidth={1.4} opacity={0.6} />
+              <Line p1={vec(20, photoHeight - 30)} p2={vec(20, photoHeight - 46)} color={lightCol} strokeWidth={1.4} opacity={0.6} />
             </>
           )}
 
-          {/* РЕЖИМ 2: MINIMAL EDITORIAL — тонкая швейцарская сетка + пульс */}
+          {/* РЕЖИМ 02: EDITORIAL GRID — швейцарская сетка + приводные метки + фокус */}
           {style.artStyle === 'minimal_editorial' && (
             <>
               <Line
@@ -243,14 +293,29 @@ export function MemoryCanvas({ memory, isPlaying = true }: MemoryCanvasProps) {
               />
               <Line
                 p1={vec(innerWidth * 0.68, 18)}
-                p2={vec(innerWidth * 0.68, photoHeight - 18)}
+                p2={vec(innerWidth * 0.68, photoHeight - 32)}
                 color={lightCol}
                 strokeWidth={0.7}
-                opacity={0.3}
+                opacity={0.32}
+              />
+              {/* Крестик-маркер на пересечении сетки */}
+              <Line
+                p1={vec(innerWidth * 0.68 - 7, photoHeight * 0.33)}
+                p2={vec(innerWidth * 0.68 + 7, photoHeight * 0.33)}
+                color={accentCol}
+                strokeWidth={1.2}
+                opacity={0.9}
+              />
+              <Line
+                p1={vec(innerWidth * 0.68, photoHeight * 0.33 - 7)}
+                p2={vec(innerWidth * 0.68, photoHeight * 0.33 + 7)}
+                color={accentCol}
+                strokeWidth={1.2}
+                opacity={0.9}
               />
               <Circle
-                cx={innerWidth - 38}
-                cy={38}
+                cx={innerWidth - 40}
+                cy={40}
                 r={ringOuterRadius}
                 color={accentCol}
                 style="stroke"
@@ -258,87 +323,107 @@ export function MemoryCanvas({ memory, isPlaying = true }: MemoryCanvasProps) {
                 opacity={0.35}
               />
               <Circle
-                cx={innerWidth - 38}
-                cy={38}
+                cx={innerWidth - 40}
+                cy={40}
                 r={ringRadius}
                 color={accentCol}
                 style="stroke"
                 strokeWidth={1.4}
                 opacity={0.9}
               />
-              <Circle cx={innerWidth - 38} cy={38} r={3.5} color={accentCol} />
+              <Circle cx={innerWidth - 40} cy={40} r={3.5} color={accentCol} />
             </>
           )}
 
-          {/* РЕЖИМ 3: DREAMY AURA — два плавающих световых ореола */}
+          {/* РЕЖИМ 03: IMPRESSIONIST AURA — мягкие слои света в духе Клода Моне */}
           {style.artStyle === 'dreamy_aura' && (
             <>
               <Rect x={0} y={0} width={innerWidth} height={photoHeight} opacity={0.44}>
                 <RadialGradient
-                  c={auraTopCenter}
+                  c={aura1Center}
                   r={auraRadius}
                   colors={[accentCol, 'transparent']}
                 />
               </Rect>
-              <Rect x={0} y={0} width={innerWidth} height={photoHeight} opacity={0.32}>
+              <Rect x={0} y={0} width={innerWidth} height={photoHeight} opacity={0.3}>
                 <RadialGradient
-                  c={auraBottomCenter}
+                  c={aura2Center}
                   r={auraRadius}
                   colors={[lightCol, 'transparent']}
                 />
               </Rect>
+              <Rect x={0} y={0} width={innerWidth} height={photoHeight} opacity={0.22}>
+                <RadialGradient
+                  c={aura3Center}
+                  r={innerWidth * 0.4}
+                  colors={[accentCol, 'transparent']}
+                />
+              </Rect>
               <Circle
                 cx={innerWidth * 0.5}
-                cy={photoHeight * 0.5}
-                r={innerWidth * 0.42}
+                cy={photoHeight * 0.48}
+                r={innerWidth * 0.39}
                 color={lightCol}
                 style="stroke"
-                strokeWidth={0.6}
+                strokeWidth={0.65}
+                opacity={0.24}
+              />
+              <Circle
+                cx={innerWidth * 0.5}
+                cy={photoHeight * 0.48}
+                r={innerWidth * 0.28}
+                color={accentCol}
+                style="stroke"
+                strokeWidth={0.65}
                 opacity={0.22}
               />
             </>
           )}
 
-          {/* РЕЖИМ 4: KINETIC ZINE — динамичные лучи ритма + угловые маркеры */}
+          {/* РЕЖИМ 04: KINETIC GEOMETRY — композиция и динамика Кандинского */}
           {style.artStyle === 'kinetic_zine' && (
             <>
+              <Line p1={beamP1} p2={beamP2} color={accentCol} strokeWidth={2.2} opacity={0.82} />
+              <Line p1={beam2P1} p2={beam2P2} color={lightCol} strokeWidth={1.1} opacity={0.5} />
               <Line
-                p1={beamP1}
-                p2={beamP2}
-                color={accentCol}
-                strokeWidth={2}
-                opacity={0.75}
-              />
-              <Line
-                p1={beam2P1}
-                p2={beam2P2}
+                p1={vec(innerWidth * 0.14, 18)}
+                p2={vec(innerWidth * 0.86, photoHeight - 36)}
                 color={lightCol}
-                strokeWidth={1}
-                opacity={0.45}
+                strokeWidth={0.65}
+                opacity={0.26}
               />
               <Circle
-                cx={34}
-                cy={34}
+                cx={36}
+                cy={36}
                 r={ringRadius}
                 color={accentCol}
                 style="stroke"
                 strokeWidth={1.6}
-                opacity={0.9}
+                opacity={0.92}
               />
+              <Circle cx={kineticDotX} cy={photoHeight * 0.26} r={5} color={accentCol} opacity={0.9} />
               <Rect
-                x={innerWidth - 46}
+                x={innerWidth - 48}
                 y={22}
-                width={24}
-                height={24}
+                width={26}
+                height={26}
                 color={accentCol}
                 style="stroke"
-                strokeWidth={1.2}
-                opacity={0.8}
+                strokeWidth={1.3}
+                opacity={0.85}
+              />
+              <Rect
+                x={innerWidth - 41}
+                y={29}
+                width={12}
+                height={12}
+                color={lightCol}
+                opacity={0.55}
               />
             </>
           )}
 
-          {/* Процедурное зерно плёнки */}
+          {/* Процедурное зерно */}
           {grainDots.map((dot) => (
             <Rect
               key={dot.id}
@@ -351,23 +436,29 @@ export function MemoryCanvas({ memory, isPlaying = true }: MemoryCanvasProps) {
             />
           ))}
 
-          {/* Линия музыкального ритма внизу полотна */}
+          {/* Полоса музыкального ритма + 5-полосный живой эквалайзер */}
           <Rect
             x={18}
-            y={photoHeight - 14}
-            width={innerWidth - 36}
+            y={barBaseY}
+            width={innerWidth - 88}
             height={2}
             color={lightCol}
             opacity={0.18}
           />
           <Rect
             x={18}
-            y={photoHeight - 14}
+            y={barBaseY}
             width={rhythmBarWidth}
             height={2}
             color={accentCol}
             opacity={0.95}
           />
+
+          <Rect x={eqStartX} y={eqY1} width={3} height={eqH1} color={accentCol} opacity={0.88} />
+          <Rect x={eqStartX + 7} y={eqY2} width={3} height={eqH2} color={accentCol} opacity={0.95} />
+          <Rect x={eqStartX + 14} y={eqY3} width={3} height={eqH3} color={lightCol} opacity={0.9} />
+          <Rect x={eqStartX + 21} y={eqY4} width={3} height={eqH4} color={accentCol} opacity={0.95} />
+          <Rect x={eqStartX + 28} y={eqY5} width={3} height={eqH5} color={accentCol} opacity={0.82} />
         </Canvas>
       </View>
 
@@ -459,7 +550,7 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   atmosphereNote: {
-    color: 'rgba(244, 239, 230, 0.65)',
+    color: 'rgba(244, 239, 230, 0.68)',
     fontSize: 12,
     lineHeight: 18,
   },

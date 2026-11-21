@@ -1,8 +1,9 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   View,
   Text,
   FlatList,
+  ScrollView,
   TouchableOpacity,
   Image,
   StyleSheet,
@@ -12,13 +13,15 @@ import {
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { ApiError, getDays, getErrorMessage, hasAuthToken } from '../../services/api';
-import { formatMemoryDate, MemoryDay } from '../../types/memory';
+import { ArtStyle, formatMemoryDate, MemoryDay } from '../../types/memory';
+import { ART_STYLE_META } from '../../constants/artStyles';
 import { THEME } from '../../constants/theme';
 
 export default function ArchiveScreen() {
   const router = useRouter();
   const [items, setItems] = useState<MemoryDay[]>([]);
-  const [showGuide, setShowGuide] = useState(true);
+  const [guideOpen, setGuideOpen] = useState<boolean | null>(null);
+  const [selectedStyle, setSelectedStyle] = useState<ArtStyle | 'all'>('all');
   const [loading, setLoading] = useState(true);
   const [needsAuth, setNeedsAuth] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -51,10 +54,25 @@ export default function ArchiveScreen() {
     }, [loadDays])
   );
 
+  // По умолчанию гид открыт, пока архив пуст; но кнопка «Гид» всегда может его открыть/скрыть
+  const isGuideVisible = guideOpen === null ? items.length === 0 : guideOpen;
+
+  const availableStyles = useMemo(() => {
+    const set = new Set<ArtStyle>();
+    items.forEach((d) => set.add(d.style.artStyle));
+    return Array.from(set);
+  }, [items]);
+
+  const filteredItems = useMemo(() => {
+    if (selectedStyle === 'all') return items;
+    return items.filter((d) => d.style.artStyle === selectedStyle);
+  }, [items, selectedStyle]);
+
   const renderFolder = ({ item, index }: { item: MemoryDay; index: number }) => {
     const [bgCol, accentCol, lightCol] = item.style.palette;
-    const folderNum = String(items.length - index).padStart(2, '0');
+    const folderNum = String(filteredItems.length - index).padStart(2, '0');
     const isSerif = item.style.typographyVariant === 'serif_editorial';
+    const modeMeta = ART_STYLE_META[item.style.artStyle];
 
     return (
       <TouchableOpacity
@@ -67,8 +85,9 @@ export default function ArchiveScreen() {
       >
         {/* Крупная атмосферная обложка дня */}
         <View style={styles.coverWrap}>
-          <Image source={{ uri: item.photoUri }} style={styles.coverImage} />
-          {/* Тонировка цветом дня */}
+          {item.photoUri ? (
+            <Image source={{ uri: item.photoUri }} style={styles.coverImage} />
+          ) : null}
           <View style={[styles.coverTint, { backgroundColor: accentCol }]} />
           <View style={[styles.coverShade, { backgroundColor: bgCol }]} />
 
@@ -115,7 +134,7 @@ export default function ArchiveScreen() {
 
           <View style={styles.cardBottomMeta}>
             <Text style={[styles.modeBadge, { color: accentCol }]}>
-              {item.style.artStyle.replace('_', ' ').toUpperCase()}
+              {modeMeta.code} · {modeMeta.shortTitle.toUpperCase()}
             </Text>
             <View style={styles.openHint}>
               <Text style={styles.openHintText}>Открыть день</Text>
@@ -130,7 +149,7 @@ export default function ArchiveScreen() {
   return (
     <View style={styles.container}>
       <FlatList
-        data={items}
+        data={filteredItems}
         keyExtractor={(item) => item.id}
         renderItem={renderFolder}
         contentContainerStyle={styles.list}
@@ -148,8 +167,10 @@ export default function ArchiveScreen() {
               <ActivityIndicator color={THEME.colors.accent} />
             ) : needsAuth ? (
               <>
-                <Text style={styles.emptyTitle}>Войдите в аккаунт</Text>
-                <Text style={styles.emptyText}>Архив загружается с Go API после авторизации.</Text>
+                <Text style={styles.emptyTitle}>Войди в личный дневник</Text>
+                <Text style={styles.emptyText}>
+                  После входа все твои папки дней сохраняются и синхронизируются между устройствами.
+                </Text>
                 <TouchableOpacity onPress={() => router.push('/auth/login')} style={styles.emptyButton}>
                   <Text style={styles.emptyButtonText}>Войти</Text>
                 </TouchableOpacity>
@@ -159,30 +180,30 @@ export default function ArchiveScreen() {
               </>
             ) : error ? (
               <>
-                <Text style={styles.emptyTitle}>Не удалось загрузить архив</Text>
+                <Text style={styles.emptyTitle}>Не удалось загрузить галерею</Text>
                 <Text style={styles.emptyText}>{error}</Text>
-                {needsAuth ? (
-                  <TouchableOpacity
-                    onPress={() => router.push('/auth/login')}
-                    style={styles.emptyButton}
-                  >
-                    <Text style={styles.emptyButtonText}>Войти</Text>
-                  </TouchableOpacity>
-                ) : (
-                  <TouchableOpacity onPress={() => void loadDays()} style={styles.emptyButton}>
-                    <Text style={styles.emptyButtonText}>Повторить</Text>
-                  </TouchableOpacity>
-                )}
+                <TouchableOpacity onPress={() => void loadDays()} style={styles.emptyButton}>
+                  <Text style={styles.emptyButtonText}>Повторить</Text>
+                </TouchableOpacity>
+              </>
+            ) : selectedStyle !== 'all' ? (
+              <>
+                <Text style={styles.emptyTitle}>В этом стиле пока нет дней</Text>
+                <TouchableOpacity onPress={() => setSelectedStyle('all')} style={styles.emptyButton}>
+                  <Text style={styles.emptyButtonText}>Показать все дни</Text>
+                </TouchableOpacity>
               </>
             ) : (
               <>
-                <Text style={styles.emptyTitle}>Пока нет сохранённых дней</Text>
-                <Text style={styles.emptyText}>Создайте первую запись, чтобы она появилась в архиве.</Text>
+                <Text style={styles.emptyTitle}>Твой архив ещё ждёт первый день</Text>
+                <Text style={styles.emptyText}>
+                  Опиши любимый день, приложи фото и песню — система соберёт первую страницу.
+                </Text>
                 <TouchableOpacity
                   onPress={() => router.push('/(tabs)/create')}
                   style={styles.emptyButton}
                 >
-                  <Text style={styles.emptyButtonText}>Создать запись</Text>
+                  <Text style={styles.emptyButtonText}>Записать первый день</Text>
                 </TouchableOpacity>
               </>
             )}
@@ -197,8 +218,8 @@ export default function ArchiveScreen() {
                 <Text style={styles.heroTitle}>Атмосфера твоих дней</Text>
               </View>
               <TouchableOpacity
-                onPress={() => setShowGuide((prev) => !prev)}
-                style={styles.helpChip}
+                onPress={() => setGuideOpen(!isGuideVisible)}
+                style={[styles.helpChip, isGuideVisible && styles.helpChipActive]}
               >
                 <Ionicons
                   name="help-circle-outline"
@@ -210,11 +231,11 @@ export default function ArchiveScreen() {
             </View>
 
             {/* Понятный онбординг с первого взгляда */}
-            {showGuide && (
+            {isGuideVisible && (
               <View style={styles.guideCard}>
                 <View style={styles.guideHeader}>
                   <Text style={styles.guideTitle}>КАК СОХРАНИТЬ ДЕНЬ ЗА 30 СЕКУНД</Text>
-                  <TouchableOpacity onPress={() => setShowGuide(false)}>
+                  <TouchableOpacity onPress={() => setGuideOpen(false)}>
                     <Text style={styles.guideClose}>Скрыть</Text>
                   </TouchableOpacity>
                 </View>
@@ -238,14 +259,56 @@ export default function ArchiveScreen() {
                   style={styles.guideCta}
                   onPress={() => router.push('/(tabs)/create')}
                 >
-                  <Text style={styles.guideCtaText}>Записать свой первый день →</Text>
+                  <Text style={styles.guideCtaText}>Записать новый день →</Text>
                 </TouchableOpacity>
               </View>
             )}
 
+            {/* Фильтр по визуальным режимам, когда в ленте больше 1 стиля */}
+            {availableStyles.length > 1 ? (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.filterRow}
+              >
+                <TouchableOpacity
+                  onPress={() => setSelectedStyle('all')}
+                  style={[styles.filterChip, selectedStyle === 'all' && styles.filterChipActive]}
+                >
+                  <Text
+                    style={[
+                      styles.filterChipText,
+                      selectedStyle === 'all' && styles.filterChipTextActive,
+                    ]}
+                  >
+                    Все ({items.length})
+                  </Text>
+                </TouchableOpacity>
+                {availableStyles.map((st) => {
+                  const active = selectedStyle === st;
+                  return (
+                    <TouchableOpacity
+                      key={st}
+                      onPress={() => setSelectedStyle(st)}
+                      style={[styles.filterChip, active && styles.filterChipActive]}
+                    >
+                      <Text
+                        style={[
+                          styles.filterChipText,
+                          active && styles.filterChipTextActive,
+                        ]}
+                      >
+                        {ART_STYLE_META[st].shortTitle}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            ) : null}
+
             <View style={styles.sectionDivider}>
               <Text style={styles.sectionLabel}>
-                СОХРАНЁННЫЕ ПАПКИ ({items.length})
+                СОХРАНЁННЫЕ ПАПКИ ({filteredItems.length})
               </Text>
             </View>
           </View>
@@ -260,7 +323,7 @@ const styles = StyleSheet.create({
   list: {
     padding: THEME.spacing.md,
     gap: 18,
-    paddingBottom: 36, // Запас под парящий док навигации
+    paddingBottom: 40,
   },
   headerBlock: { gap: 14, marginBottom: 4 },
   heroRow: {
@@ -292,6 +355,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
     backgroundColor: THEME.colors.surface,
+  },
+  helpChipActive: {
+    borderColor: THEME.colors.accent,
+    backgroundColor: THEME.colors.accentSoft,
   },
   helpChipText: {
     fontFamily: THEME.fonts.mono,
@@ -359,6 +426,31 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     color: THEME.colors.accent,
+  },
+  filterRow: {
+    gap: 8,
+    paddingVertical: 2,
+  },
+  filterChip: {
+    paddingHorizontal: 13,
+    paddingVertical: 7,
+    borderRadius: THEME.radius.pill,
+    borderWidth: 1,
+    borderColor: THEME.colors.borderStrong,
+    backgroundColor: THEME.colors.surface,
+  },
+  filterChipActive: {
+    borderColor: THEME.colors.accent,
+    backgroundColor: THEME.colors.accentSoft,
+  },
+  filterChipText: {
+    fontFamily: THEME.fonts.mono,
+    fontSize: 11,
+    color: THEME.colors.textMuted,
+  },
+  filterChipTextActive: {
+    color: THEME.colors.accent,
+    fontWeight: '700',
   },
   sectionDivider: {
     paddingTop: 4,

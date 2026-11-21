@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -19,14 +20,57 @@ type createDayRequest struct {
 	Track     *TrackInfo `json:"track"`
 }
 
+func firstFormValue(values []string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	return values[0]
+}
+
 func (s *apiServer) createDay(c *fiber.Ctx) error {
 	userID := c.Locals("userID").(string)
 
 	var input createDayRequest
-	if err := c.BodyParser(&input); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Некорректный JSON",
-		})
+	if strings.HasPrefix(c.Get("Content-Type"), "multipart/form-data") {
+		form, err := c.MultipartForm()
+		if err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": "Некорректная загрузка фотографии",
+			})
+		}
+
+		input.Text = firstFormValue(form.Value["text"])
+		if err := json.Unmarshal([]byte(firstFormValue(form.Value["track"])), &input.Track); err != nil {
+			input.Track = nil
+		}
+
+		files := form.File["photo"]
+		if len(files) == 0 {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": "Добавь фотографию дня",
+			})
+		}
+
+		extension := strings.ToLower(filepath.Ext(files[0].Filename))
+		if extension != ".jpg" && extension != ".jpeg" && extension != ".png" && extension != ".heic" {
+			extension = ".jpg"
+		}
+		filename := uuid.NewString() + extension
+		photoPath := filepath.Join("uploads", filename)
+		if err := c.SaveFile(files[0], photoPath); err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"error": "Не удалось сохранить фотографию",
+			})
+		}
+		input.PhotoURI = c.BaseURL() + "/uploads/" + filename
+	}
+
+	if input.PhotoURI == "" {
+		if err := c.BodyParser(&input); err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": "Некорректный JSON",
+			})
+		}
 	}
 
 	input.Text = strings.TrimSpace(input.Text)

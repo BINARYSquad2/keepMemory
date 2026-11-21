@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -13,73 +13,115 @@ import {
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { createMemoryMock } from '../../services/memoryStore';
-import { ArtStyle } from '../../types/memory';
+import {
+  ApiError,
+  createDay,
+  getErrorMessage,
+  searchTracks,
+} from '../../services/api';
+import { TrackInfo } from '../../types/memory';
 import { THEME } from '../../constants/theme';
-
-const STYLE_OPTIONS: { id?: ArtStyle; label: string }[] = [
-  { id: undefined, label: 'Авто' },
-  { id: 'analog_film', label: 'Плёнка' },
-  { id: 'dreamy_aura', label: 'Аура' },
-  { id: 'minimal_editorial', label: 'Сетка' },
-  { id: 'kinetic_zine', label: 'Кинетика' },
-];
 
 export default function CreateDayScreen() {
   const router = useRouter();
   const [text, setText] = useState('');
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [songQuery, setSongQuery] = useState('');
-  const [selectedStyle, setSelectedStyle] = useState<ArtStyle | undefined>(undefined);
+  const [tracks, setTracks] = useState<TrackInfo[]>([]);
+  const [selectedTrack, setSelectedTrack] = useState<TrackInfo | null>(null);
+  const [trackLoading, setTrackLoading] = useState(false);
+  const [trackError, setTrackError] = useState<string | null>(null);
+  const [needsAuth, setNeedsAuth] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const readyCount = [Boolean(text.trim()), Boolean(photoUri), Boolean(songQuery.trim())].filter(
-    Boolean
-  ).length;
+  const readyCount = [
+    text.trim().length >= 10,
+    Boolean(photoUri),
+    Boolean(selectedTrack),
+  ].filter(Boolean).length;
 
-  const pickImage = async () => {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert('Нужен доступ', 'Разреши доступ к галерее, чтобы выбрать фото дня.');
-      return;
+  useEffect(() => {
+    let active = true;
+    const query = songQuery.trim();
+
+    if (query.length < 2) {
+      return () => {
+        active = false;
+      };
     }
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsEditing: true,
-      aspect: [4, 5],
-      quality: 0.85,
-    });
+    const timeout = setTimeout(() => {
+      setTrackLoading(true);
+      void searchTracks(query)
+        .then((results) => {
+          if (active) setTracks(results);
+        })
+        .catch((requestError: unknown) => {
+          if (active) {
+            setTrackError(getErrorMessage(requestError));
+            setNeedsAuth(requestError instanceof ApiError && requestError.status === 401);
+          }
+        })
+        .finally(() => {
+          if (active) setTrackLoading(false);
+        });
+    }, 350);
 
-    if (!result.canceled && result.assets[0]) {
-      setPhotoUri(result.assets[0].uri);
+    return () => {
+      active = false;
+      clearTimeout(timeout);
+    };
+  }, [songQuery]);
+
+  const pickImage = async () => {
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert('Нужен доступ', 'Разреши доступ к галерее, чтобы выбрать фото дня.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [4, 5],
+        quality: 0.85,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        setPhotoUri(result.assets[0].uri);
+      }
+    } catch (pickerError) {
+      setError(getErrorMessage(pickerError));
     }
   };
 
   const handleSave = async () => {
-    if (!text.trim() || !photoUri || !songQuery.trim()) {
-      Alert.alert(
-        'Осталось чуть-чуть',
-        'Чтобы собрать атмосферу дня, заполни все 3 шага: текст, фотографию и песню.'
-      );
+    if (loading) return;
+    if (text.trim().length < 10 || !photoUri || !selectedTrack) {
+      setError('Нужны текст минимум из 10 символов, фотография и выбранный трек из результатов поиска.');
       return;
     }
 
     try {
+      setError(null);
       setLoading(true);
-      const created = await createMemoryMock({
+      const created = await createDay({
         text: text.trim(),
         photoUri,
-        songQuery: songQuery.trim(),
-        preferredMood: selectedStyle,
+        track: selectedTrack,
       });
 
       setText('');
       setPhotoUri(null);
       setSongQuery('');
-      setSelectedStyle(undefined);
+      setSelectedTrack(null);
 
       router.push(`/memory/${created.id}`);
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+      setNeedsAuth(requestError instanceof ApiError && requestError.status === 401);
     } finally {
       setLoading(false);
     }
@@ -123,6 +165,7 @@ export default function CreateDayScreen() {
           placeholder="Каким был этот день на ощупь? Например: шёл тёплый дождь, в окнах горел жёлтый свет..."
           placeholderTextColor={THEME.colors.textDim}
           multiline
+          maxLength={4000}
           value={text}
           onChangeText={setText}
           textAlignVertical="top"
@@ -160,38 +203,87 @@ export default function CreateDayScreen() {
       <View style={styles.stepCard}>
         <View style={styles.stepHeader}>
           <Text style={styles.stepTag}>03 · САУНДТРЕК</Text>
-          <Text style={styles.stepHint}>Задаёт темп и характер слоёв</Text>
+          <Text style={styles.stepHint}>Выбери официальный preview трека</Text>
         </View>
         <View style={styles.songInputWrap}>
           <Ionicons name="musical-notes-outline" size={18} color={THEME.colors.accent} />
           <TextInput
             style={styles.songInput}
-            placeholder="Исполнитель — название песни или ссылка"
+            placeholder="Исполнитель или название песни"
             placeholderTextColor={THEME.colors.textDim}
             value={songQuery}
-            onChangeText={setSongQuery}
+            onChangeText={(value) => {
+              setSongQuery(value);
+              setSelectedTrack(null);
+              setTracks([]);
+              setTrackError(null);
+              setNeedsAuth(false);
+              setTrackLoading(value.trim().length >= 2);
+              setError(null);
+            }}
           />
         </View>
 
-        {/* Выбор настроения/режима (опционально для калибровки) */}
-        <Text style={styles.modeCaption}>Визуальный акцент (можно оставить «Авто»)</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipsRow}>
-          {STYLE_OPTIONS.map((opt) => {
-            const active = selectedStyle === opt.id;
-            return (
-              <TouchableOpacity
-                key={opt.label}
-                onPress={() => setSelectedStyle(opt.id)}
-                style={[styles.chip, active && styles.chipActive]}
-              >
-                <Text style={[styles.chipText, active && styles.chipTextActive]}>
-                  {opt.label}
-                </Text>
+        {selectedTrack ? (
+          <View style={styles.selectedTrack}>
+            <View style={styles.selectedTrackInfo}>
+              <Text style={styles.selectedTrackTitle} numberOfLines={1}>
+                {selectedTrack.title}
+              </Text>
+              <Text style={styles.stepHint} numberOfLines={1}>
+                {selectedTrack.artist} · {selectedTrack.genre}
+              </Text>
+            </View>
+            <TouchableOpacity onPress={() => setSelectedTrack(null)}>
+              <Text style={styles.changeTrack}>Изменить</Text>
+            </TouchableOpacity>
+          </View>
+        ) : trackLoading ? (
+          <ActivityIndicator color={THEME.colors.accent} />
+        ) : trackError ? (
+          <View style={styles.trackError}>
+            <Text style={styles.errorText}>{trackError}</Text>
+            {needsAuth ? (
+              <TouchableOpacity onPress={() => router.push('/auth/login')}>
+                <Text style={styles.changeTrack}>Войти в аккаунт</Text>
               </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
+            ) : null}
+          </View>
+        ) : tracks.length > 0 ? (
+          <View style={styles.trackResults}>
+            {tracks.map((track) => (
+              <TouchableOpacity
+                key={track.id}
+                style={styles.trackResult}
+                onPress={() => setSelectedTrack(track)}
+              >
+                <View style={styles.trackResultText}>
+                  <Text style={styles.trackResultTitle} numberOfLines={1}>{track.title}</Text>
+                  <Text style={styles.stepHint} numberOfLines={1}>
+                    {track.artist} · {track.genre}
+                  </Text>
+                </View>
+                <Ionicons name="add-circle-outline" size={20} color={THEME.colors.accent} />
+              </TouchableOpacity>
+            ))}
+          </View>
+        ) : songQuery.trim().length >= 2 ? (
+          <Text style={styles.stepHint}>Подходящих треков с preview не найдено.</Text>
+        ) : (
+          <Text style={styles.stepHint}>Введите минимум 2 символа для поиска.</Text>
+        )}
       </View>
+
+      {error ? (
+        <View style={styles.trackError}>
+          <Text style={styles.errorText}>{error}</Text>
+          {needsAuth ? (
+            <TouchableOpacity onPress={() => router.push('/auth/login')}>
+              <Text style={styles.changeTrack}>Войти в аккаунт</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
+      ) : null}
 
       <TouchableOpacity
         style={[
@@ -199,7 +291,7 @@ export default function CreateDayScreen() {
           (loading || readyCount < 3) && styles.submitBtnDim,
         ]}
         onPress={handleSave}
-        disabled={loading}
+        disabled={loading || readyCount < 3}
         activeOpacity={0.85}
       >
         {loading ? (
@@ -346,32 +438,47 @@ const styles = StyleSheet.create({
     paddingVertical: 13,
     fontSize: 14,
   },
-  modeCaption: {
-    fontSize: 11,
-    color: THEME.colors.textMuted,
-    marginTop: 4,
-  },
-  chipsRow: { gap: 8, paddingVertical: 2 },
-  chip: {
-    paddingHorizontal: 13,
-    paddingVertical: 7,
-    borderRadius: THEME.radius.pill,
+  trackResults: {
     borderWidth: 1,
-    borderColor: THEME.colors.borderStrong,
-    backgroundColor: THEME.colors.surfaceElevated,
+    borderColor: THEME.colors.border,
+    borderRadius: THEME.radius.sm,
+    overflow: 'hidden',
   },
-  chipActive: {
-    backgroundColor: THEME.colors.accentSoft,
+  trackResult: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: THEME.colors.border,
+  },
+  trackResultText: { flex: 1, gap: 3 },
+  trackResultTitle: { color: THEME.colors.text, fontSize: 13, fontWeight: '600' },
+  selectedTrack: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    padding: 12,
+    borderWidth: 1,
     borderColor: THEME.colors.accent,
+    borderRadius: THEME.radius.sm,
+    backgroundColor: THEME.colors.accentSoft,
   },
-  chipText: {
+  selectedTrackInfo: { flex: 1, gap: 4 },
+  selectedTrackTitle: { color: THEME.colors.text, fontSize: 14, fontWeight: '700' },
+  changeTrack: {
     fontFamily: THEME.fonts.mono,
     fontSize: 11,
-    color: THEME.colors.textMuted,
-  },
-  chipTextActive: {
     color: THEME.colors.accent,
-    fontWeight: '700',
+  },
+  trackError: { gap: 8 },
+  errorText: {
+    color: THEME.colors.danger,
+    fontSize: 13,
+    lineHeight: 19,
   },
   submitBtn: {
     backgroundColor: THEME.colors.accent,

@@ -5,10 +5,34 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/joho/godotenv"
 )
 
 func main() {
+	if err := run(); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func run() error {
+	if err := godotenv.Load(); err != nil {
+		log.Println("Файл .env не найден, беру системные переменные")
+	}
+
+	db, err := InitDB()
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	log.Println("Успешно подключено к PostgreSQL (keepmemory)!")
+
+	return newApp(db).Listen(":8080")
+}
+
+func newApp(db *pgxpool.Pool) *fiber.App {
 	app := fiber.New()
+	api := &apiServer{db: db}
 
 	// Разрешает мобильному приложению обращаться к API во время разработки.
 	app.Use(cors.New(cors.Config{
@@ -33,17 +57,18 @@ func main() {
 		})
 	})
 
-	api := app.Group("/api")
-	auth := api.Group("/auth")
+	apiRoutes := app.Group("/api")
+	auth := apiRoutes.Group("/auth")
 
-	auth.Post("/register", registerUser)
-	auth.Post("/login", loginUser)
+	auth.Post("/register", api.registerUser)
+	auth.Post("/login", api.loginUser)
 
-	api.Get("/profile", requireAuth, getProfile)
-	api.Patch("/profile", requireAuth, updateProfile)
-	api.Post("/days", requireAuth, createDay)
-	api.Get("/days", requireAuth, getDays)
-	api.Get("/tracks/search", requireAuth, searchTracks)
+	apiRoutes.Get("/profile", requireAuth, api.getProfile)
+	apiRoutes.Patch("/profile", requireAuth, api.updateProfile)
+	apiRoutes.Post("/days", requireAuth, api.createDay)
+	apiRoutes.Get("/days", requireAuth, api.getDays)
+	apiRoutes.Get("/days/:id", requireAuth, api.getDayByID)
+	apiRoutes.Get("/tracks/search", requireAuth, searchTracks)
 
-	log.Fatal(app.Listen(":8080"))
+	return app
 }

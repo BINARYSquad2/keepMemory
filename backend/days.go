@@ -1,18 +1,15 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
+	"log"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
-)
-
-var (
-	days   = make([]Day, 0)
-	daysMu sync.RWMutex
+	"github.com/jackc/pgx/v5"
 )
 
 type createDayRequest struct {
@@ -22,7 +19,7 @@ type createDayRequest struct {
 	Track     *TrackInfo `json:"track"`
 }
 
-func createDay(c *fiber.Ctx) error {
+func (s *apiServer) createDay(c *fiber.Ctx) error {
 	userID := c.Locals("userID").(string)
 
 	var input createDayRequest
@@ -76,30 +73,112 @@ func createDay(c *fiber.Ctx) error {
 		CreatedAt:   now,
 	}
 
-	daysMu.Lock()
-	days = append([]Day{day}, days...)
-	daysMu.Unlock()
+	trackJSON, err := json.Marshal(day.Track)
+	if err != nil {
+		log.Printf("encode track for PostgreSQL: %v", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Не удалось сохранить запись",
+		})
+	}
+	styleJSON, err := json.Marshal(day.Style)
+	if err != nil {
+		log.Printf("encode style for PostgreSQL: %v", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Не удалось сохранить запись",
+		})
+	}
+
+	err = s.db.QueryRow(c.UserContext(),
+		`INSERT INTO days (id, user_id, date, folder_title, text, photo_uri, track, style)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		 RETURNING created_at`,
+		day.ID,
+		day.UserID,
+		day.Date,
+		day.FolderTitle,
+		day.Text,
+		day.PhotoURI,
+		trackJSON,
+		styleJSON,
+	).Scan(&day.CreatedAt)
+	if err != nil {
+		log.Printf("insert day in PostgreSQL: %v", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Не удалось сохранить запись",
+		})
+	}
 
 	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
 		"day": day,
 	})
 }
 
-func getDays(c *fiber.Ctx) error {
+func (s *apiServer) getDays(c *fiber.Ctx) error {
 	userID := c.Locals("userID").(string)
 
-	daysMu.RLock()
-	defer daysMu.RUnlock()
+	rows, err := s.db.Query(c.UserContext(),
+		`SELECT id, user_id, date, folder_title, text, photo_uri, track, style, created_at
+		 FROM days
+		 WHERE user_id = $1
+		 ORDER BY created_at DESC`,
+		userID,
+	)
+	if err != nil {
+		log.Printf("load days from PostgreSQL: %v", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Не удалось загрузить записи",
+		})
+	}
+	defer rows.Close()
 
 	userDays := make([]Day, 0)
-	for _, day := range days {
-		if day.UserID == userID {
-			userDays = append(userDays, day)
+	for rows.Next() {
+		day, err := scanDay(rows)
+		if err != nil {
+			log.Printf("decode day from PostgreSQL: %v", err)
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"error": "Не удалось загрузить записи",
+			})
 		}
+		userDays = append(userDays, day)
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("iterate days from PostgreSQL: %v", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Не удалось загрузить записи",
+		})
 	}
 
 	return c.JSON(fiber.Map{
 		"days": userDays,
+	})
+}
+
+func (s *apiServer) getDayByID(c *fiber.Ctx) error {
+	userID := c.Locals("userID").(string)
+	dayID := c.Params("id")
+
+	day, err := scanDay(s.db.QueryRow(c.UserContext(),
+		`SELECT id, user_id, date, folder_title, text, photo_uri, track, style, created_at
+		 FROM days
+		 WHERE id = $1 AND user_id = $2`,
+		dayID,
+		userID,
+	))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"error": "Запись не найдена",
+		})
+	}
+	if err != nil {
+		log.Printf("load day from PostgreSQL: %v", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Не удалось загрузить запись",
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"day": day,
 	})
 }
 

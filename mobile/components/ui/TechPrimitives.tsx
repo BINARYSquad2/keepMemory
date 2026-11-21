@@ -8,6 +8,7 @@ import {
   TextInputProps,
   ViewStyle,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { THEME } from '../../constants/theme';
 
 interface TechBadgeProps {
@@ -28,10 +29,19 @@ export function TechBadge({ label, active = false }: TechBadgeProps) {
 interface TechInputProps extends TextInputProps {
   label: string;
   code?: string;
+  showPasswordToggle?: boolean;
 }
 
-export function TechInput({ label, code, style, ...props }: TechInputProps) {
+export function TechInput({
+  label,
+  code,
+  style,
+  showPasswordToggle = false,
+  secureTextEntry,
+  ...inputProps
+}: TechInputProps) {
   const [focused, setFocused] = useState(false);
+  const [passwordVisible, setPasswordVisible] = useState(false);
 
   return (
     <View style={styles.inputGroup}>
@@ -39,24 +49,45 @@ export function TechInput({ label, code, style, ...props }: TechInputProps) {
         {code ? <Text style={styles.labelCode}>[{code}]</Text> : null}
         <Text style={styles.label}>{label}</Text>
       </View>
-      <TextInput
-        placeholderTextColor={THEME.colors.textDim}
-        onFocus={(e) => {
-          setFocused(true);
-          props.onFocus?.(e);
-        }}
-        onBlur={(e) => {
-          setFocused(false);
-          props.onBlur?.(e);
-        }}
-        style={[
-          styles.input,
-          focused && styles.inputFocused,
-          props.multiline && styles.inputMultiline,
-          style,
-        ]}
-        {...props}
-      />
+      <View style={showPasswordToggle && styles.passwordInputWrap}>
+        <TextInput
+          placeholderTextColor={THEME.colors.textDim}
+          onFocus={(e) => {
+            setFocused(true);
+            inputProps.onFocus?.(e);
+          }}
+          onBlur={(e) => {
+            setFocused(false);
+            inputProps.onBlur?.(e);
+          }}
+          secureTextEntry={
+            showPasswordToggle ? !passwordVisible : secureTextEntry
+          }
+          style={[
+            styles.input,
+            focused && styles.inputFocused,
+            inputProps.multiline && styles.inputMultiline,
+            showPasswordToggle && styles.passwordInput,
+            style,
+          ]}
+          {...inputProps}
+        />
+        {showPasswordToggle ? (
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel={passwordVisible ? 'Скрыть пароль' : 'Показать пароль'}
+            onPress={() => setPasswordVisible((visible) => !visible)}
+            style={styles.passwordToggle}
+            hitSlop={8}
+          >
+            <Ionicons
+              name={passwordVisible ? 'eye-off-outline' : 'eye-outline'}
+              size={20}
+              color={THEME.colors.textMuted}
+            />
+          </TouchableOpacity>
+        ) : null}
+      </View>
     </View>
   );
 }
@@ -64,6 +95,7 @@ export function TechInput({ label, code, style, ...props }: TechInputProps) {
 interface TechButtonProps {
   title: string;
   onPress: () => void;
+  disabled?: boolean;
   variant?: 'primary' | 'secondary' | 'ghost';
   style?: ViewStyle;
 }
@@ -71,18 +103,21 @@ interface TechButtonProps {
 export function TechButton({
   title,
   onPress,
+  disabled = false,
   variant = 'primary',
   style,
 }: TechButtonProps) {
   return (
     <TouchableOpacity
-      activeOpacity={0.75}
+      activeOpacity={disabled ? 1 : 0.75}
+      disabled={disabled}
       onPress={onPress}
       style={[
         styles.button,
         variant === 'primary' && styles.btnPrimary,
         variant === 'secondary' && styles.btnSecondary,
         variant === 'ghost' && styles.btnGhost,
+        disabled && styles.buttonDisabled,
         style,
       ]}
     >
@@ -182,6 +217,17 @@ const styles = StyleSheet.create({
     minHeight: 96,
     textAlignVertical: 'top',
   },
+  passwordInputWrap: { position: 'relative' },
+  passwordInput: { paddingRight: 48 },
+  passwordToggle: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    width: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   button: {
     paddingVertical: 15,
     paddingHorizontal: 18,
@@ -190,6 +236,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 1,
   },
+  buttonDisabled: { opacity: 0.55 },
   btnPrimary: {
     backgroundColor: THEME.colors.accent,
     borderColor: THEME.colors.accent,

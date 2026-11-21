@@ -7,11 +7,14 @@ export type ArtStyle =
 export type TypographyVariant = 'serif_editorial' | 'mono_archive';
 
 export interface TrackInfo {
+  id: number;
   title: string;
   artist: string;
   previewUrl: string;
   genre: string;
-  energy?: number;
+  artworkUrl: string;
+  trackUrl: string;
+  energy: number;
 }
 
 export interface StyleRecipe {
@@ -25,10 +28,22 @@ export interface StyleRecipe {
 
 export interface MemoryDay {
   id: string;
+  createdAt: string;
   date: string;
   folderTitle: string; // 3-7 слов
   text: string;
   photoUri: string;
   track: TrackInfo;
   style: StyleRecipe;
+}
+
+export function formatMemoryDate(value: string): string {
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+
+  return date.toLocaleDateString('ru-RU', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
 }

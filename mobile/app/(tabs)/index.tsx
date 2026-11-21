@@ -6,22 +6,49 @@ import {
   TouchableOpacity,
   Image,
   StyleSheet,
+  ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { getMemories } from '../../services/memoryStore';
-import { MemoryDay } from '../../types/memory';
+import { ApiError, getDays, getErrorMessage, hasAuthToken } from '../../services/api';
+import { formatMemoryDate, MemoryDay } from '../../types/memory';
 import { THEME } from '../../constants/theme';
 
 export default function ArchiveScreen() {
   const router = useRouter();
-  const [items, setItems] = useState<MemoryDay[]>(getMemories());
+  const [items, setItems] = useState<MemoryDay[]>([]);
   const [showGuide, setShowGuide] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [needsAuth, setNeedsAuth] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadDays = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    setNeedsAuth(false);
+    try {
+      if (!(await hasAuthToken())) {
+        setItems([]);
+        setNeedsAuth(true);
+        return;
+      }
+
+      const days = await getDays();
+      setItems(days);
+      setNeedsAuth(false);
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+      setNeedsAuth(requestError instanceof ApiError && requestError.status === 401);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
-      setItems([...getMemories()]);
-    }, [])
+      void loadDays();
+    }, [loadDays])
   );
 
   const renderFolder = ({ item, index }: { item: MemoryDay; index: number }) => {
@@ -50,7 +77,7 @@ export default function ArchiveScreen() {
             <View style={styles.dirPill}>
               <View style={[styles.dirDot, { backgroundColor: accentCol }]} />
               <Text style={styles.dirText}>
-                День {folderNum} · {item.date}
+                День {folderNum} · {formatMemoryDate(item.date)}
               </Text>
             </View>
             <View style={styles.paletteStrip}>
@@ -108,6 +135,59 @@ export default function ArchiveScreen() {
         renderItem={renderFolder}
         contentContainerStyle={styles.list}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={loading}
+            onRefresh={() => void loadDays()}
+            tintColor={THEME.colors.accent}
+          />
+        }
+        ListEmptyComponent={
+          <View style={styles.emptyState}>
+            {loading ? (
+              <ActivityIndicator color={THEME.colors.accent} />
+            ) : needsAuth ? (
+              <>
+                <Text style={styles.emptyTitle}>Войдите в аккаунт</Text>
+                <Text style={styles.emptyText}>Архив загружается с Go API после авторизации.</Text>
+                <TouchableOpacity onPress={() => router.push('/auth/login')} style={styles.emptyButton}>
+                  <Text style={styles.emptyButtonText}>Войти</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => router.push('/auth/register')} style={styles.emptyLink}>
+                  <Text style={styles.emptyLinkText}>Создать аккаунт</Text>
+                </TouchableOpacity>
+              </>
+            ) : error ? (
+              <>
+                <Text style={styles.emptyTitle}>Не удалось загрузить архив</Text>
+                <Text style={styles.emptyText}>{error}</Text>
+                {needsAuth ? (
+                  <TouchableOpacity
+                    onPress={() => router.push('/auth/login')}
+                    style={styles.emptyButton}
+                  >
+                    <Text style={styles.emptyButtonText}>Войти</Text>
+                  </TouchableOpacity>
+                ) : (
+                  <TouchableOpacity onPress={() => void loadDays()} style={styles.emptyButton}>
+                    <Text style={styles.emptyButtonText}>Повторить</Text>
+                  </TouchableOpacity>
+                )}
+              </>
+            ) : (
+              <>
+                <Text style={styles.emptyTitle}>Пока нет сохранённых дней</Text>
+                <Text style={styles.emptyText}>Создайте первую запись, чтобы она появилась в архиве.</Text>
+                <TouchableOpacity
+                  onPress={() => router.push('/(tabs)/create')}
+                  style={styles.emptyButton}
+                >
+                  <Text style={styles.emptyButtonText}>Создать запись</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+        }
         ListHeaderComponent={
           <View style={styles.headerBlock}>
             {/* Заголовок галереи */}
@@ -415,6 +495,43 @@ const styles = StyleSheet.create({
   openHintText: {
     fontFamily: THEME.fonts.mono,
     fontSize: 11,
+    color: THEME.colors.textMuted,
+  },
+  emptyState: {
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 28,
+    paddingHorizontal: 10,
+  },
+  emptyTitle: {
+    fontFamily: THEME.fonts.serif,
+    fontSize: 20,
+    color: THEME.colors.text,
+    textAlign: 'center',
+  },
+  emptyText: {
+    fontSize: 13,
+    lineHeight: 19,
+    color: THEME.colors.textMuted,
+    textAlign: 'center',
+  },
+  emptyButton: {
+    borderWidth: 1,
+    borderColor: THEME.colors.accent,
+    borderRadius: THEME.radius.pill,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    backgroundColor: THEME.colors.accentSoft,
+  },
+  emptyButtonText: {
+    fontFamily: THEME.fonts.mono,
+    color: THEME.colors.accent,
+    fontWeight: '700',
+    fontSize: 12,
+  },
+  emptyLink: { padding: 6 },
+  emptyLinkText: {
+    fontSize: 12,
     color: THEME.colors.textMuted,
   },
 });

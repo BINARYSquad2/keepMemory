@@ -238,10 +238,7 @@ func (s *apiServer) requireAuth(c *fiber.Ctx) error {
 		`SELECT EXISTS (SELECT 1 FROM users WHERE id = $1)`,
 		userID,
 	).Scan(&userExists); err != nil {
-		log.Printf("verify authenticated user in PostgreSQL: %v", err)
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Не удалось проверить пользователя",
-		})
+		return databaseErrorResponse(c, err, "verify authenticated user in PostgreSQL", "Не удалось проверить пользователя")
 	}
 	if !userExists {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{

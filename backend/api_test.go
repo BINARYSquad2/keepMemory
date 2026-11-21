@@ -37,20 +37,23 @@ func TestNormalizePhotoURIs(t *testing.T) {
 	}
 }
 
-func TestAnalyzeDayPrioritizesFavoriteDayDetailsAndTrackEnergy(t *testing.T) {
-	title, style := analyzeDay(
-		"Мой любимый день: гуляли с семьёй на солнце, смеялись и устроили пикник",
-		TrackInfo{Title: "Fast", Genre: "Electronic", Energy: 0.9},
+func TestFallbackAnalyzeDayUsesMoodCuesAndTrackEnergy(t *testing.T) {
+	title, rainyStyle := fallbackAnalyzeDay(
+		User{},
+		"Тихая прогулка после дождя",
+		TrackInfo{Title: "Soft", Genre: "Ambient", Energy: 0.3},
+		photoVisuals{},
+		1,
 	)
-	if title != "Солнечный день среди близких" {
-		t.Fatalf("favorite day title = %q, want warm personal title", title)
+	if title != "Тихая прогулка после дождя" {
+		t.Fatalf("rainy day title = %q, want a title based on the day details", title)
 	}
-	if style.ArtStyle != "dreamy_aura" {
-		t.Fatalf("favorite day art style = %q, want dreamy_aura", style.ArtStyle)
+	if rainyStyle.ArtStyle != "dreamy_aura" || rainyStyle.Mood != "sad" {
+		t.Fatalf("rainy day style = %#v, want dreamy_aura and sad mood", rainyStyle)
 	}
 
-	_, calmStyle := analyzeDay("Обычный день", TrackInfo{Energy: 0.2})
-	_, energeticStyle := analyzeDay("Обычный день", TrackInfo{Energy: 0.9})
+	_, calmStyle := fallbackAnalyzeDay(User{}, "Обычный день", TrackInfo{Energy: 0.2}, photoVisuals{}, 1)
+	_, energeticStyle := fallbackAnalyzeDay(User{}, "Обычный день", TrackInfo{Energy: 0.9}, photoVisuals{}, 1)
 	if energeticStyle.MotionSpeed <= calmStyle.MotionSpeed {
 		t.Fatalf("energetic motion speed = %v, calm speed = %v",
 			energeticStyle.MotionSpeed, calmStyle.MotionSpeed)
@@ -172,17 +175,16 @@ func TestAuthenticatedDayWorkflow(t *testing.T) {
 		t.Fatalf("create day status = %d, want %d: %s", create.Code, http.StatusCreated, create.Body)
 	}
 
-		var result struct {
-			Day Day `json:"day"`
-		}
-		if err := json.Unmarshal(create.Body.Bytes(), &result); err != nil {
-			t.Fatalf("decode created day %d: %v", index, err)
-		}
-		if result.Day.ID == "" || result.Day.FolderTitle == "" {
-			t.Fatalf("created day %d must include an ID and generated folder title", index)
-		}
-		createdDays = append(createdDays, result.Day)
+	var created struct {
+		Day Day `json:"day"`
 	}
+	if err := json.Unmarshal(create.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode created day: %v", err)
+	}
+	if created.Day.ID == "" || created.Day.FolderTitle == "" {
+		t.Fatal("created day must include an ID and generated folder title")
+	}
+	createdDays := []Day{created.Day}
 	if len(created.Day.PhotoURIs) != 2 {
 		t.Fatalf("photoUris count = %d, want 2", len(created.Day.PhotoURIs))
 	}

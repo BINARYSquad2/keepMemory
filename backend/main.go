@@ -113,14 +113,14 @@ func newApp(db *pgxpool.Pool) *fiber.App {
 	auth.Post("/register", api.registerUser)
 	auth.Post("/login", api.loginUser)
 
-	apiRoutes.Get("/profile", requireAuth, api.getProfile)
-	apiRoutes.Patch("/profile", requireAuth, api.updateProfile)
-	apiRoutes.Post("/days", requireAuth, api.createDay)
-	apiRoutes.Get("/days", requireAuth, api.getDays)
-	apiRoutes.Get("/days/:id", requireAuth, api.getDayByID)
-	apiRoutes.Delete("/days/:id", requireAuth, api.deleteDay)
-	apiRoutes.Get("/backup", requireAuth, api.downloadBackup)
-	apiRoutes.Get("/tracks/search", requireAuth, searchTracks)
+	apiRoutes.Get("/profile", api.requireAuth, api.getProfile)
+	apiRoutes.Patch("/profile", api.requireAuth, api.updateProfile)
+	apiRoutes.Post("/days", api.requireAuth, api.createDay)
+	apiRoutes.Get("/days", api.requireAuth, api.getDays)
+	apiRoutes.Get("/days/:id", api.requireAuth, api.getDayByID)
+	apiRoutes.Delete("/days/:id", api.requireAuth, api.deleteDay)
+	apiRoutes.Get("/backup", api.requireAuth, api.downloadBackup)
+	apiRoutes.Get("/tracks/search", api.requireAuth, searchTracks)
 	apiRoutes.Get("/media/:owner/:filename", api.getMedia)
 
 	return app

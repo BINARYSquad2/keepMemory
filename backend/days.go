@@ -14,7 +14,6 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 )
 
 const maxAlbumPhotos = 6
@@ -574,8 +573,8 @@ func resolveTrack(ctx context.Context, input createDayRequest) (TrackInfo, error
 func containsAny(value string, terms ...string) bool {
 	for _, term := range terms {
 		if strings.Contains(value, term) {
-			matches++
+			return true
 		}
 	}
-	return matches
+	return false
 }

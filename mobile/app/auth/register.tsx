@@ -4,15 +4,16 @@ import {
   Text,
   StyleSheet,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   ScrollView,
   TouchableOpacity,
-  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { THEME } from '../../constants/theme';
+import { ApiError, getErrorMessage, register } from '../../services/api';
 import {
   TechBadge,
   TechButton,
@@ -26,6 +27,9 @@ export default function RegisterScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [duplicateEmail, setDuplicateEmail] = useState(false);
 
   const handleBack = () => {
     if (router.canGoBack()) {
@@ -35,13 +39,28 @@ export default function RegisterScreen() {
     }
   };
 
-  const handleRegisterStub = () => {
-    // TODO (Акылбек): POST /api/auth/register { name, email, password }
-    Alert.alert(
-      'REGISTER // STUB',
-      `Аккаунт «${name || 'Explorer'}» будет создан после подключения Go API.`
-    );
-    router.replace('/(tabs)');
+  const handleRegister = async () => {
+    if (loading) return;
+    setError(null);
+
+    if (password !== confirmPassword) {
+      setError('Пароли не совпадают.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await register({ name: name.trim(), email: email.trim(), password });
+      router.replace('/(tabs)');
+    } catch (requestError) {
+      if (requestError instanceof ApiError && requestError.status === 409) {
+        setDuplicateEmail(true);
+      } else {
+        setError(getErrorMessage(requestError));
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -98,6 +117,7 @@ export default function RegisterScreen() {
               label="Пароль"
               placeholder="Минимум 8 символов"
               secureTextEntry
+              showPasswordToggle
               value={password}
               onChangeText={setPassword}
             />
@@ -107,15 +127,18 @@ export default function RegisterScreen() {
               label="Повтор пароля"
               placeholder="Повтори пароль"
               secureTextEntry
+              showPasswordToggle
               value={confirmPassword}
               onChangeText={setConfirmPassword}
             />
 
             <TechButton
-              title="Создать профиль →"
-              onPress={handleRegisterStub}
+              title={loading ? 'СОЗДАНИЕ...' : 'Создать профиль →'}
+              onPress={handleRegister}
+              disabled={loading}
               style={styles.submitBtn}
             />
+            {error ? <Text style={styles.errorText}>{error}</Text> : null}
           </TechCard>
 
           <View style={styles.footer}>
@@ -127,6 +150,33 @@ export default function RegisterScreen() {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+      <Modal
+        transparent
+        visible={duplicateEmail}
+        animationType="fade"
+        onRequestClose={() => setDuplicateEmail(false)}
+      >
+        <View style={styles.alertOverlay}>
+          <View style={styles.alertCard}>
+            <Text style={styles.alertTitle}>Аккаунт уже существует</Text>
+            <Text style={styles.alertMessage}>
+              Этот email уже зарегистрирован. Войдите в аккаунт.
+            </Text>
+            <TechButton
+              title="Войти"
+              onPress={() => {
+                setDuplicateEmail(false);
+                router.replace('/auth/login');
+              }}
+            />
+            <TechButton
+              title="Закрыть"
+              variant="secondary"
+              onPress={() => setDuplicateEmail(false)}
+            />
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -181,5 +231,35 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   submitBtn: { marginTop: 8 },
+  errorText: {
+    color: THEME.colors.danger,
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 12,
+  },
   footer: { gap: 10 },
+  alertOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    padding: THEME.spacing.lg,
+    backgroundColor: 'rgba(3, 3, 6, 0.72)',
+  },
+  alertCard: {
+    gap: 14,
+    padding: THEME.spacing.lg,
+    backgroundColor: THEME.colors.surface,
+    borderWidth: 1,
+    borderColor: THEME.colors.borderStrong,
+    borderRadius: THEME.radius.xs,
+  },
+  alertTitle: {
+    color: THEME.colors.text,
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  alertMessage: {
+    color: THEME.colors.textMuted,
+    fontSize: 14,
+    lineHeight: 20,
+  },
 });

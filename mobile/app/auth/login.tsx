@@ -7,12 +7,12 @@ import {
   Platform,
   ScrollView,
   TouchableOpacity,
-  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { THEME } from '../../constants/theme';
+import { getErrorMessage, login } from '../../services/api';
 import {
   TechBadge,
   TechButton,
@@ -24,6 +24,8 @@ export default function LoginScreen() {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleBack = () => {
     if (router.canGoBack()) {
@@ -33,13 +35,19 @@ export default function LoginScreen() {
     }
   };
 
-  const handleLoginStub = () => {
-    // TODO (Акылбек): POST /api/auth/login { email, password } -> save JWT token
-    Alert.alert(
-      'AUTH // STUB',
-      `Вход подготовлен для: ${email || 'user@keepmemory.app'}`
-    );
-    router.replace('/(tabs)');
+  const handleLogin = async () => {
+    if (loading) return;
+    setError(null);
+    setLoading(true);
+
+    try {
+      await login({ email: email.trim(), password });
+      router.replace('/(tabs)');
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -88,15 +96,18 @@ export default function LoginScreen() {
               label="Пароль"
               placeholder="••••••••"
               secureTextEntry
+              showPasswordToggle
               value={password}
               onChangeText={setPassword}
             />
 
             <TechButton
-              title="Войти в архив →"
-              onPress={handleLoginStub}
+              title={loading ? 'ВХОД...' : 'Войти в архив →'}
+              onPress={handleLogin}
+              disabled={loading}
               style={styles.submitBtn}
             />
+            {error ? <Text style={styles.errorText}>{error}</Text> : null}
           </TechCard>
 
           <View style={styles.footer}>
@@ -162,5 +173,11 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   submitBtn: { marginTop: 8 },
+  errorText: {
+    color: THEME.colors.danger,
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 12,
+  },
   footer: { gap: 10 },
 });

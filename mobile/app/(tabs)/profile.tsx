@@ -1,7 +1,15 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Alert } from 'react-native';
-import { useRouter } from 'expo-router';
+import React, { useCallback, useState } from 'react';
+import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { THEME } from '../../constants/theme';
+import {
+  clearAuthToken,
+  getErrorMessage,
+  getProfile,
+  hasAuthToken,
+  updateProfile,
+  UserProfile,
+} from '../../services/api';
 import {
   TechBadge,
   TechButton,
@@ -11,13 +19,90 @@ import {
 
 export default function ProfileScreen() {
   const router = useRouter();
-  const [displayName, setDisplayName] = useState('Archivist');
-  const [handle, setHandle] = useState('@keepmemory_user');
-  const [bio, setBio] = useState('Фиксирую свет, звук и ощущение дней.');
+  const [displayName, setDisplayName] = useState('');
+  const [handle, setHandle] = useState('');
+  const [bio, setBio] = useState('');
+  const [signedIn, setSignedIn] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleSaveProfile = () => {
-    // TODO (Акылбек): PATCH /api/profile { displayName, handle, bio }
-    Alert.alert('PROFILE // STUB', 'Изменения профиля готовы к отправке на сервер.');
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+
+      const loadProfile = async () => {
+        setLoading(true);
+        setError(null);
+        try {
+          if (!(await hasAuthToken())) {
+            if (active) {
+              setSignedIn(false);
+              setDisplayName('');
+              setHandle('');
+              setBio('');
+            }
+            return;
+          }
+
+          const user = await getProfile();
+          if (active) {
+            setSignedIn(true);
+            setProfileFields(user);
+          }
+        } catch (requestError) {
+          if (active) {
+            setSignedIn(false);
+            setDisplayName('');
+            setHandle('');
+            setBio('');
+            setError(getErrorMessage(requestError));
+          }
+        } finally {
+          if (active) setLoading(false);
+        }
+      };
+
+      const setProfileFields = (user: UserProfile) => {
+        setDisplayName(user.displayName);
+        setHandle(user.handle);
+        setBio(user.bio);
+      };
+
+      void loadProfile();
+      return () => {
+        active = false;
+      };
+    }, [])
+  );
+
+  const handleSaveProfile = async () => {
+    if (!signedIn || saving) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const user = await updateProfile({ displayName, handle, bio });
+      setDisplayName(user.displayName);
+      setHandle(user.handle);
+      setBio(user.bio);
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await clearAuthToken();
+      setSignedIn(false);
+      setDisplayName('');
+      setHandle('');
+      setBio('');
+      setError(null);
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    }
   };
 
   return (
@@ -34,52 +119,60 @@ export default function ProfileScreen() {
           </Text>
         </View>
         <View style={styles.identityMeta}>
-          <TechBadge label="STATUS // LOCAL_MODE" active />
-          <Text style={styles.name}>{displayName || 'Без имени'}</Text>
+          <TechBadge
+            label={loading ? 'API // CONNECTING' : signedIn ? 'API // CONNECTED' : 'AUTH // REQUIRED'}
+            active={signedIn}
+          />
+          <Text style={styles.name}>{displayName || (signedIn ? 'Без имени' : 'Войдите в аккаунт')}</Text>
           <Text style={styles.handle}>{handle}</Text>
         </View>
       </View>
 
-      {/* Форма редактирования */}
-      <TechCard headerTag="EDIT_PROFILE // PARAMETERS">
-        <TechInput
-          code="01"
-          label="Отображаемое имя"
-          placeholder="Твоё имя"
-          value={displayName}
-          onChangeText={setDisplayName}
-        />
+      {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
-        <TechInput
-          code="02"
-          label="Никнейм"
-          placeholder="@username"
-          autoCapitalize="none"
-          value={handle}
-          onChangeText={setHandle}
-        />
+      {!loading && signedIn ? (
+        <>
+          <TechCard headerTag="EDIT_PROFILE // PARAMETERS">
+            <TechInput
+              code="01"
+              label="Отображаемое имя"
+              placeholder="Твоё имя"
+              value={displayName}
+              onChangeText={setDisplayName}
+            />
 
-        <TechInput
-          code="03"
-          label="Подпись дневника"
-          placeholder="Короткое описание..."
-          multiline
-          value={bio}
-          onChangeText={setBio}
-        />
+            <TechInput
+              code="02"
+              label="Никнейм"
+              placeholder="@username"
+              autoCapitalize="none"
+              value={handle}
+              onChangeText={setHandle}
+            />
 
-        <TechButton title="Сохранить изменения" onPress={handleSaveProfile} />
-      </TechCard>
+            <TechInput
+              code="03"
+              label="Подпись дневника"
+              placeholder="Короткое описание..."
+              multiline
+              value={bio}
+              onChangeText={setBio}
+            />
 
-      {/* Быстрый доступ к экранам авторизации для проверки и стыковки */}
-      <TechCard headerTag="AUTH_SCREENS // PREVIEW">
-        <Text style={styles.hint}>
-          Временные кнопки для проверки UI авторизации до подключения токенов бэкенда.
-        </Text>
-        <View style={styles.authButtons}>
+            <TechButton
+              title={saving ? 'СОХРАНЕНИЕ...' : 'Сохранить изменения'}
+              onPress={handleSaveProfile}
+              disabled={saving}
+            />
+          </TechCard>
+          <TechButton title="Выйти из аккаунта" variant="secondary" onPress={handleLogout} />
+        </>
+      ) : !loading ? (
+        <TechCard headerTag="AUTH // REQUIRED">
+          <Text style={styles.hint}>Войдите или зарегистрируйтесь, чтобы загрузить профиль и дневник.</Text>
+          <View style={styles.authButtons}>
           <TechButton
-            title="Экран входа"
-            variant="secondary"
+            title="Войти"
             onPress={() => router.push('/auth/login')}
           />
           <TechButton
@@ -87,8 +180,9 @@ export default function ProfileScreen() {
             variant="secondary"
             onPress={() => router.push('/auth/register')}
           />
-        </View>
-      </TechCard>
+          </View>
+        </TechCard>
+      ) : null}
     </ScrollView>
   );
 }
@@ -133,6 +227,11 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
     marginBottom: 14,
+  },
+  errorText: {
+    color: THEME.colors.danger,
+    fontSize: 13,
+    lineHeight: 19,
   },
   authButtons: { gap: 10 },
 });

@@ -5,7 +5,7 @@ import {
   ScrollView,
   TouchableOpacity,
   StyleSheet,
-  Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -15,7 +15,8 @@ import {
   useAudioPlayerStatus,
   setAudioModeAsync,
 } from 'expo-audio';
-import { getMemoryById } from '../../services/memoryStore';
+import { ApiError, getDay, getErrorMessage } from '../../services/api';
+import { MemoryDay } from '../../types/memory';
 import { MemoryCanvas } from '../../components/MemoryCanvas';
 import { THEME } from '../../constants/theme';
 import { TechCard } from '../../components/ui/TechPrimitives';
@@ -23,32 +24,69 @@ import { TechCard } from '../../components/ui/TechPrimitives';
 export default function MemoryDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const memory = id ? getMemoryById(id) : undefined;
+  const [loadedDay, setLoadedDay] = useState<{
+    id: string;
+    memory: MemoryDay | null;
+    error: string | null;
+    needsAuth: boolean;
+  } | null>(null);
+  const [audioError, setAudioError] = useState<string | null>(null);
 
+  useEffect(() => {
+    let active = true;
+    if (!id) {
+      return;
+    }
+
+    void getDay(id)
+      .then((day) => {
+        if (active) {
+          setLoadedDay({ id, memory: day, error: null, needsAuth: false });
+        }
+      })
+      .catch((requestError: unknown) => {
+        if (active) setLoadedDay({
+          id,
+          memory: null,
+          error: getErrorMessage(requestError),
+          needsAuth: requestError instanceof ApiError && requestError.status === 401,
+        });
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [id]);
+
+  const resultForId = loadedDay?.id === id ? loadedDay : null;
+  const memory = resultForId?.memory ?? null;
+  const loading = Boolean(id) && resultForId === null;
+  const error = resultForId?.error ?? (id ? null : 'Не указан идентификатор записи.');
+  const needsAuth = resultForId?.needsAuth ?? false;
   const previewUrl = memory?.track.previewUrl || '';
   const player = useAudioPlayer(previewUrl ? { uri: previewUrl } : null);
   const status = useAudioPlayerStatus(player);
-  const [mockPlaying, setMockPlaying] = useState(false);
-
-  const isPlaying = previewUrl ? status.playing : mockPlaying;
+  const isPlaying = Boolean(previewUrl) && status.playing;
 
   useEffect(() => {
-    player.loop = true;
-    setAudioModeAsync({ playsInSilentMode: true }).catch(() => {});
-  }, [player]);
+    let active = true;
+    void setAudioModeAsync({ playsInSilentMode: true }).catch((audioModeError: unknown) => {
+      if (active) setAudioError(getErrorMessage(audioModeError));
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const togglePlay = () => {
     if (!memory) return;
 
     if (!previewUrl) {
-      setMockPlaying((prev) => !prev);
-      Alert.alert(
-        'AUDIO // MOCK MODE',
-        'После подключения Go-бэкенда (Deezer/iTunes API) здесь зазвучит 30-секундный фрагмент трека. Анимация ритма уже активна.'
-      );
+      setAudioError('У этого трека нет доступного фрагмента для воспроизведения.');
       return;
     }
 
+    setAudioError(null);
     if (status.playing) {
       player.pause();
     } else {
@@ -56,11 +94,27 @@ export default function MemoryDetailScreen() {
     }
   };
 
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.safe}>
+        <View style={styles.center}>
+          <ActivityIndicator color={THEME.colors.accent} />
+          <Text style={styles.errorText}>Загружаю запись из Go API…</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   if (!memory) {
     return (
       <SafeAreaView style={styles.safe}>
         <View style={styles.center}>
-          <Text style={styles.errorText}>Запись не найдена</Text>
+          <Text style={styles.errorText}>{error || 'Запись не найдена.'}</Text>
+          {needsAuth ? (
+            <TouchableOpacity onPress={() => router.push('/auth/login')}>
+              <Text style={styles.backLink}>Войти в аккаунт</Text>
+            </TouchableOpacity>
+          ) : null}
           <TouchableOpacity onPress={() => router.back()}>
             <Text style={styles.backLink}>← Вернуться в архив</Text>
           </TouchableOpacity>
@@ -85,7 +139,7 @@ export default function MemoryDetailScreen() {
 
       <ScrollView contentContainerStyle={styles.scroll}>
         {/* Визуальное воспоминание (Skia + Reanimated) */}
-        <MemoryCanvas memory={memory} isPlaying={true} />
+        <MemoryCanvas memory={memory} isPlaying={isPlaying} />
 
         {/* Блок плеера трека */}
         <TechCard headerTag="AUDIO_SYNC // TRACK PREVIEW">
@@ -118,6 +172,7 @@ export default function MemoryDetailScreen() {
               {memory.style.motionSpeed.toFixed(1)}x
             </Text>
           </View>
+          {audioError ? <Text style={styles.audioError}>{audioError}</Text> : null}
         </TechCard>
 
         {/* Текст записи */}
@@ -154,7 +209,13 @@ export default function MemoryDetailScreen() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: THEME.colors.bg },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 12 },
-  errorText: { color: THEME.colors.text, fontSize: 16 },
+  errorText: { color: THEME.colors.text, fontSize: 14, textAlign: 'center' },
+  audioError: {
+    color: THEME.colors.danger,
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 10,
+  },
   backLink: { fontFamily: THEME.fonts.mono, color: THEME.colors.accent },
   topBar: {
     flexDirection: 'row',

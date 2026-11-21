@@ -2,20 +2,17 @@ package main
 
 import (
 	"errors"
+	"log"
 	"os"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"golang.org/x/crypto/bcrypt"
-)
-
-var (
-	users   = make([]User, 0)
-	usersMu sync.RWMutex
 )
 
 type registerRequest struct {
@@ -29,7 +26,7 @@ type loginRequest struct {
 	Password string `json:"password"`
 }
 
-func registerUser(c *fiber.Ctx) error {
+func (s *apiServer) registerUser(c *fiber.Ctx) error {
 	var input registerRequest
 
 	if err := c.BodyParser(&input); err != nil {
@@ -69,17 +66,6 @@ func registerUser(c *fiber.Ctx) error {
 		})
 	}
 
-	usersMu.Lock()
-	defer usersMu.Unlock()
-
-	for _, existingUser := range users {
-		if existingUser.Email == email {
-			return c.Status(fiber.StatusConflict).JSON(fiber.Map{
-				"error": "Пользователь с таким email уже существует",
-			})
-		}
-	}
-
 	user := User{
 		ID:           uuid.NewString(),
 		Email:        email,
@@ -87,17 +73,47 @@ func registerUser(c *fiber.Ctx) error {
 		DisplayName:  name,
 		Handle:       "@" + strings.ReplaceAll(strings.ToLower(name), " ", "_"),
 		Bio:          "Фиксирую свет, звук и ощущение дней.",
-		CreatedAt:    time.Now().UTC(),
 	}
 
-	users = append(users, user)
+	token, err := createToken(user)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Не удалось создать токен",
+		})
+	}
+
+	err = s.db.QueryRow(c.UserContext(),
+		`INSERT INTO users (id, name, handle, bio, email, password_hash)
+		 VALUES ($1, $2, $3, $4, $5, $6)
+		 RETURNING created_at`,
+		user.ID,
+		user.DisplayName,
+		user.Handle,
+		user.Bio,
+		user.Email,
+		user.PasswordHash,
+	).Scan(&user.CreatedAt)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return c.Status(fiber.StatusConflict).JSON(fiber.Map{
+				"error": "Пользователь с таким email уже существует",
+			})
+		}
+		log.Printf("register user in PostgreSQL: %v", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Не удалось сохранить пользователя",
+		})
+	}
 
 	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
-		"user": user,
+		"token":     token,
+		"tokenType": "Bearer",
+		"user":      user,
 	})
 }
 
-func loginUser(c *fiber.Ctx) error {
+func (s *apiServer) loginUser(c *fiber.Ctx) error {
 	var input loginRequest
 
 	if err := c.BodyParser(&input); err != nil {
@@ -108,39 +124,52 @@ func loginUser(c *fiber.Ctx) error {
 
 	email := strings.ToLower(strings.TrimSpace(input.Email))
 
-	usersMu.RLock()
-	defer usersMu.RUnlock()
-
-	for _, user := range users {
-		if user.Email != email {
-			continue
-		}
-
-		if err := bcrypt.CompareHashAndPassword(
-			[]byte(user.PasswordHash),
-			[]byte(input.Password),
-		); err != nil {
-			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-				"error": "Неверный email или пароль",
-			})
-		}
-
-		token, err := createToken(user)
-		if err != nil {
-			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-				"error": "Не удалось создать токен",
-			})
-		}
-
-		return c.JSON(fiber.Map{
-			"token":     token,
-			"tokenType": "Bearer",
-			"user":      user,
+	var user User
+	err := s.db.QueryRow(c.UserContext(),
+		`SELECT id, email, password_hash, name, handle, bio, created_at
+		 FROM users WHERE email = $1`,
+		email,
+	).Scan(
+		&user.ID,
+		&user.Email,
+		&user.PasswordHash,
+		&user.DisplayName,
+		&user.Handle,
+		&user.Bio,
+		&user.CreatedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"error": "Неверный email или пароль",
+		})
+	}
+	if err != nil {
+		log.Printf("load user for login from PostgreSQL: %v", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Не удалось выполнить вход",
 		})
 	}
 
-	return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-		"error": "Неверный email или пароль",
+	if err := bcrypt.CompareHashAndPassword(
+		[]byte(user.PasswordHash),
+		[]byte(input.Password),
+	); err != nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"error": "Неверный email или пароль",
+		})
+	}
+
+	token, err := createToken(user)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Не удалось создать токен",
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"token":     token,
+		"tokenType": "Bearer",
+		"user":      user,
 	})
 }
 
@@ -214,26 +243,40 @@ func requireAuth(c *fiber.Ctx) error {
 	return c.Next()
 }
 
-func getProfile(c *fiber.Ctx) error {
+func (s *apiServer) getProfile(c *fiber.Ctx) error {
 	userID := c.Locals("userID").(string)
 
-	usersMu.RLock()
-	defer usersMu.RUnlock()
-
-	for _, user := range users {
-		if user.ID == userID {
-			return c.JSON(fiber.Map{
-				"user": user,
-			})
-		}
+	var user User
+	err := s.db.QueryRow(c.UserContext(),
+		`SELECT id, email, name, handle, bio, created_at
+		 FROM users WHERE id = $1`,
+		userID,
+	).Scan(
+		&user.ID,
+		&user.Email,
+		&user.DisplayName,
+		&user.Handle,
+		&user.Bio,
+		&user.CreatedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"error": "Пользователь не найден",
+		})
+	}
+	if err != nil {
+		log.Printf("load profile from PostgreSQL: %v", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Не удалось загрузить профиль",
+		})
 	}
 
-	return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-		"error": "Пользователь не найден",
+	return c.JSON(fiber.Map{
+		"user": user,
 	})
 }
 
-func updateProfile(c *fiber.Ctx) error {
+func (s *apiServer) updateProfile(c *fiber.Ctx) error {
 	userID := c.Locals("userID").(string)
 
 	var input updateProfileRequest
@@ -263,24 +306,37 @@ func updateProfile(c *fiber.Ctx) error {
 		})
 	}
 
-	usersMu.Lock()
-	defer usersMu.Unlock()
-
-	for index := range users {
-		if users[index].ID != userID {
-			continue
-		}
-
-		users[index].DisplayName = input.DisplayName
-		users[index].Handle = input.Handle
-		users[index].Bio = input.Bio
-
-		return c.JSON(fiber.Map{
-			"user": users[index],
+	var user User
+	err := s.db.QueryRow(c.UserContext(),
+		`UPDATE users
+		 SET name = $1, handle = $2, bio = $3
+		 WHERE id = $4
+		 RETURNING id, email, name, handle, bio, created_at`,
+		input.DisplayName,
+		input.Handle,
+		input.Bio,
+		userID,
+	).Scan(
+		&user.ID,
+		&user.Email,
+		&user.DisplayName,
+		&user.Handle,
+		&user.Bio,
+		&user.CreatedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"error": "Пользователь не найден",
+		})
+	}
+	if err != nil {
+		log.Printf("update profile in PostgreSQL: %v", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Не удалось сохранить профиль",
 		})
 	}
 
-	return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-		"error": "Пользователь не найден",
+	return c.JSON(fiber.Map{
+		"user": user,
 	})
 }

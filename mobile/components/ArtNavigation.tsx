@@ -7,12 +7,14 @@ import {
   Modal,
   Animated,
   Dimensions,
+  Platform,
   TouchableWithoutFeedback,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { usePathname, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { THEME } from '../constants/theme';
+import { clearAuthToken, getErrorMessage, hasAuthToken } from '../services/api';
 
 const DRAWER_WIDTH = Math.min(Dimensions.get('window').width * 0.8, 320);
 
@@ -86,35 +88,53 @@ export function ArtSideMenu({ visible, onClose }: ArtSideMenuProps) {
   const router = useRouter();
 
   const [mounted, setMounted] = useState(visible);
+  const [authStatus, setAuthStatus] = useState<'loading' | 'signedIn' | 'signedOut'>('loading');
+  const [authError, setAuthError] = useState<string | null>(null);
   const slideX = useRef(new Animated.Value(-DRAWER_WIDTH)).current;
   const fade = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     if (visible) {
       setMounted(true);
+      setAuthStatus('loading');
+      setAuthError(null);
+      let active = true;
+      hasAuthToken()
+        .then((authenticated) => {
+          if (active) setAuthStatus(authenticated ? 'signedIn' : 'signedOut');
+        })
+        .catch((error: unknown) => {
+          if (active) {
+            setAuthStatus('signedOut');
+            setAuthError(getErrorMessage(error));
+          }
+        });
       Animated.parallel([
         Animated.timing(slideX, {
           toValue: 0,
           duration: 240,
-          useNativeDriver: true,
+          useNativeDriver: Platform.OS !== 'web',
         }),
         Animated.timing(fade, {
           toValue: 1,
           duration: 220,
-          useNativeDriver: true,
+          useNativeDriver: Platform.OS !== 'web',
         }),
       ]).start();
+      return () => {
+        active = false;
+      };
     } else {
       Animated.parallel([
         Animated.timing(slideX, {
           toValue: -DRAWER_WIDTH,
           duration: 200,
-          useNativeDriver: true,
+          useNativeDriver: Platform.OS !== 'web',
         }),
         Animated.timing(fade, {
           toValue: 0,
           duration: 180,
-          useNativeDriver: true,
+          useNativeDriver: Platform.OS !== 'web',
         }),
       ]).start(({ finished }) => {
         if (finished) setMounted(false);
@@ -131,6 +151,17 @@ export function ArtSideMenu({ visible, onClose }: ArtSideMenuProps) {
         router.navigate(href);
       }
     }, 120);
+  };
+
+  const handleLogout = async () => {
+    try {
+      await clearAuthToken();
+      setAuthStatus('signedOut');
+      setAuthError(null);
+      onClose();
+    } catch (error) {
+      setAuthError(getErrorMessage(error));
+    }
   };
 
   const navItems = [
@@ -233,15 +264,22 @@ export function ArtSideMenu({ visible, onClose }: ArtSideMenuProps) {
           {/* Нижняя часть меню: аккаунт */}
           <View style={styles.drawerFooter}>
             <View style={styles.hairline} />
-            <View style={styles.authLinks}>
-              <TouchableOpacity onPress={() => goTo('/auth/login')} style={styles.authBtn}>
-                <Text style={styles.authBtnText}>Войти</Text>
+            {authError ? <Text style={styles.authError}>{authError}</Text> : null}
+            {authStatus === 'signedOut' ? (
+              <View style={styles.authLinks}>
+                <TouchableOpacity onPress={() => goTo('/auth/login')} style={styles.authBtn}>
+                  <Text style={styles.authBtnText}>Войти</Text>
+                </TouchableOpacity>
+                <Text style={styles.authDivider}>·</Text>
+                <TouchableOpacity onPress={() => goTo('/auth/register')} style={styles.authBtn}>
+                  <Text style={styles.authBtnText}>Регистрация</Text>
+                </TouchableOpacity>
+              </View>
+            ) : authStatus === 'signedIn' ? (
+              <TouchableOpacity onPress={handleLogout} style={styles.authBtn}>
+                <Text style={styles.authBtnText}>Выйти из аккаунта</Text>
               </TouchableOpacity>
-              <Text style={styles.authDivider}>·</Text>
-              <TouchableOpacity onPress={() => goTo('/auth/register')} style={styles.authBtn}>
-                <Text style={styles.authBtnText}>Регистрация</Text>
-              </TouchableOpacity>
-            </View>
+            ) : null}
           </View>
         </Animated.View>
       </View>
@@ -415,6 +453,11 @@ const styles = StyleSheet.create({
   authBtnText: {
     color: THEME.colors.textMuted,
     fontSize: 13,
+  },
+  authError: {
+    color: THEME.colors.danger,
+    fontSize: 12,
+    lineHeight: 17,
   },
   authDivider: {
     color: THEME.colors.textDim,

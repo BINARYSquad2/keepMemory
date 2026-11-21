@@ -18,7 +18,7 @@ import {
   withTiming,
   Easing,
 } from 'react-native-reanimated';
-import { ArtStyle, MemoryDay } from '../types/memory';
+import { ArtStyle, formatMemoryDate, MemoryDay } from '../types/memory';
 import { THEME } from '../constants/theme';
 
 interface MemoryCanvasProps {
@@ -139,7 +139,7 @@ export function MemoryCanvas({ memory, isPlaying = true }: MemoryCanvasProps) {
         <View style={styles.metaLeft}>
           <View style={[styles.liveDot, { backgroundColor: accentCol }]} />
           <Text style={[styles.metaMono, { color: lightCol }]}>
-            {memory.date.toUpperCase()}
+            {formatMemoryDate(memory.date).toUpperCase()}
           </Text>
         </View>
         <Text style={[styles.metaMono, { color: accentCol }]}>

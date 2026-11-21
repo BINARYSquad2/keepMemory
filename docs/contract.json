@@ -4,6 +4,10 @@
   "folderTitle": "Тёплый вечер после дождя",
   "text": "Текст записи о дне...",
   "photoUri": "file:///example/photo.jpg",
+  "photoUris": [
+    "file:///example/photo.jpg",
+    "file:///example/photo-2.jpg"
+  ],
   "track": {
     "id": 123,
     "title": "Sample Track",

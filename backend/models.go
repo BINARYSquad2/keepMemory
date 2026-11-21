@@ -34,13 +34,16 @@ type StyleRecipe struct {
 
 // Day — одно воспоминание пользователя.
 type Day struct {
-	ID          string      `json:"id"`
-	UserID      string      `json:"-"`
-	Date        string      `json:"date"`
-	FolderTitle string      `json:"folderTitle"`
-	Text        string      `json:"text"`
-	PhotoURI    string      `json:"photoUri"`
-	Track       TrackInfo   `json:"track"`
-	Style       StyleRecipe `json:"style"`
-	CreatedAt   time.Time   `json:"createdAt"`
+	ID          string `json:"id"`
+	UserID      string `json:"-"`
+	Date        string `json:"date"`
+	FolderTitle string `json:"folderTitle"`
+	Text        string `json:"text"`
+	// PhotoURI remains the cover image for clients that support one image only.
+	PhotoURI string `json:"photoUri"`
+	// PhotoURIs is the complete album. It includes PhotoURI as its first item.
+	PhotoURIs []string    `json:"photoUris"`
+	Track     TrackInfo   `json:"track"`
+	Style     StyleRecipe `json:"style"`
+	CreatedAt time.Time   `json:"createdAt"`
 }

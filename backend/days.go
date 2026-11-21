@@ -14,6 +14,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 const maxAlbumPhotos = 6
@@ -148,6 +149,7 @@ func (s *apiServer) createDay(c *fiber.Ctx) error {
 
 	input.Text = strings.TrimSpace(input.Text)
 	input.PhotoURI = strings.TrimSpace(input.PhotoURI)
+	input.PhotoURIs = normalizePhotoURIs(input.PhotoURI, input.PhotoURIs)
 	input.SongQuery = strings.TrimSpace(input.SongQuery)
 
 	photoURIs := normalizePhotoURIs(input.PhotoURI, input.PhotoURIs)
@@ -572,9 +574,8 @@ func resolveTrack(ctx context.Context, input createDayRequest) (TrackInfo, error
 func containsAny(value string, terms ...string) bool {
 	for _, term := range terms {
 		if strings.Contains(value, term) {
-			return true
+			matches++
 		}
 	}
-
-	return false
+	return matches
 }

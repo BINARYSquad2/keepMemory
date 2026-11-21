@@ -188,7 +188,7 @@ type updateProfileRequest struct {
 	Bio         string `json:"bio"`
 }
 
-func requireAuth(c *fiber.Ctx) error {
+func (s *apiServer) requireAuth(c *fiber.Ctx) error {
 	authHeader := c.Get(fiber.HeaderAuthorization)
 	parts := strings.SplitN(authHeader, " ", 2)
 
@@ -230,6 +230,22 @@ func requireAuth(c *fiber.Ctx) error {
 	if !ok || userID == "" {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 			"error": "В токене нет пользователя",
+		})
+	}
+
+	var userExists bool
+	if err := s.db.QueryRow(c.UserContext(),
+		`SELECT EXISTS (SELECT 1 FROM users WHERE id = $1)`,
+		userID,
+	).Scan(&userExists); err != nil {
+		log.Printf("verify authenticated user in PostgreSQL: %v", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Не удалось проверить пользователя",
+		})
+	}
+	if !userExists {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"error": "Пользователь не найден. Войдите в аккаунт снова",
 		})
 	}
 

@@ -68,10 +68,7 @@ export async function hasAuthToken(): Promise<boolean> {
   return Boolean(await readToken());
 }
 
-/**
- * Превращает относительный путь с бэкенда (/api/media/... или /uploads/...) в полный URL.
- * Работает одинаково с локальным Go-сервером и облачным Railway.
- */
+
 export function resolveMediaUrl(uri: string): string {
   const trimmed = uri?.trim() ?? '';
   if (!trimmed) return '';
@@ -102,7 +99,7 @@ async function saveLocalExtraPhotos(dayId: string, uris: string[]): Promise<void
       await SecureStore.setItemAsync(key, raw);
     }
   } catch {
-    // Основная запись уже сохранена на сервере
+
   }
 }
 
@@ -115,7 +112,7 @@ async function clearLocalExtraPhotos(dayId: string): Promise<void> {
       await SecureStore.deleteItemAsync(key);
     }
   } catch {
-    // Игнорируем, если локального кэша не было
+
   }
 }
 

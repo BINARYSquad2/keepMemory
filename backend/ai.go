@@ -24,8 +24,8 @@ type photoVisuals struct {
 	BgHex       string
 	AccentHex   string
 	LightHex    string
-	Warmth      string // "warm" | "cool" | "neutral"
-	Brightness  string // "dark" | "balanced" | "bright"
+	Warmth      string
+	Brightness  string
 	Description string
 }
 
@@ -307,7 +307,7 @@ func mergeAndValidateRecipe(
 	}
 
 	if ai.MotionSpeed > 0 {
-		// Удерживаем заметную связь с энергией трека
+
 		blendedSpeed := ai.MotionSpeed*0.7 + (0.4+track.Energy*1.2)*0.3
 		style.MotionSpeed = math.Round(clampFloat(blendedSpeed, 0.35, 1.85)*100) / 100
 	}
@@ -430,7 +430,7 @@ func fallbackAnalyzeDay(
 		note = fmt.Sprintf("Камерный свет и мягкое плёночное зерно хранят живое ощущение дня под «%s».", track.Title)
 	}
 
-	// Учёт предпочтений из описания профиля пользователя
+
 	personalizationNote := ""
 	if strings.TrimSpace(user.Bio) != "" {
 		switch {
@@ -453,7 +453,7 @@ func fallbackAnalyzeDay(
 		}
 	}
 
-	// Подмешиваем реальную извлечённую палитру фотографий
+
 	if visuals.HasColor {
 		palette = [3]string{visuals.BgHex, visuals.AccentHex, visuals.LightHex}
 	}
@@ -549,7 +549,7 @@ func sampleImageColors(path string, acc *colorAccumulator) {
 			acc.totalPixels++
 
 			_, sat, lum := rgbToHSL(r, g, b)
-			// Выразительные пиксели (не слишком тёмные и не выжженно-белые) задают акцент
+
 			if lum > 0.16 && lum < 0.86 {
 				weight := 0.25 + sat*sat*3.0
 				acc.accR += r * weight
@@ -585,7 +585,7 @@ func extractPhotoVisuals(localPhotoPaths []string) photoVisuals {
 		accentH, accentS = avgH, math.Max(0.35, avgS)
 	}
 
-	// Строим гармоничную и читаемую тройку: глубокий фон, живой акцент, тёплая светлая бумага
+
 	bgHex := hslToHex(avgH, clampFloat(avgS*0.55, 0.14, 0.42), 0.09)
 	accentHex := hslToHex(accentH, clampFloat(math.Max(accentS, 0.48), 0.45, 0.85), 0.64)
 	lightHex := hslToHex(accentH, clampFloat(accentS*0.28, 0.08, 0.24), 0.93)

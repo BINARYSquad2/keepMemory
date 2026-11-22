@@ -113,7 +113,7 @@ export default function GuideScreen() {
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
       >
-        {/* Вступление */}
+
         <View style={styles.heroCard}>
           <Text style={styles.heroTitle}>Сохраняйте ощущение дня</Text>
           <Text style={styles.heroQuote}>
@@ -121,7 +121,7 @@ export default function GuideScreen() {
           </Text>
         </View>
 
-        {/* Пошаговое управление */}
+
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Как вести дневник</Text>
           <View style={styles.stepsCol}>
@@ -139,7 +139,7 @@ export default function GuideScreen() {
           </View>
         </View>
 
-        {/* Из чего строится воспоминание */}
+
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Что влияет на результат</Text>
           <View style={styles.factorsCard}>
@@ -179,7 +179,7 @@ export default function GuideScreen() {
           </View>
         </View>
 
-        {/* Интерактивный разбор 4 режимов */}
+
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Художественные режимы</Text>
           <Text style={styles.sectionSub}>
@@ -251,7 +251,7 @@ export default function GuideScreen() {
           </View>
         </View>
 
-        {/* Полезные жесты */}
+
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Удобные мелочи</Text>
           <View style={styles.controlsGrid}>

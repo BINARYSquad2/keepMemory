@@ -3,9 +3,9 @@ import { ART_STYLE_META } from '../constants/artStyles';
 
 export interface DayAtmosphereReading {
   moodCategory: MoodCategory;
-  moodBadge: string;      // Естественный тег настроения: «Тёплый уют», «Ночной фокус»
-  cardCaption: string;    // Короткая живая подпись на самой открытке
-  curatorSummary: string; // Цельное объяснение оформления этого конкретного дня
+  moodBadge: string;
+  cardCaption: string;
+  curatorSummary: string;
   drivers: {
     text: string;
     palette: string;

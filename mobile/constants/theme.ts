@@ -11,16 +11,16 @@ export const THEME = {
     borderStrong: 'rgba(255, 255, 255, 0.2)',
     borderFocus: '#D8FF4B',
     gridLine: 'rgba(255, 255, 255, 0.045)',
-    text: '#F4EFE6',          // Тёплая выставочная бумага
+    text: '#F4EFE6',
     textMuted: '#9B98A8',
     textDim: '#605D6E',
-    accent: '#D8FF4B',        // Сигнальный ArtTech-лайм
+    accent: '#D8FF4B',
     accentSoft: 'rgba(216, 255, 75, 0.13)',
     accentGlow: 'rgba(216, 255, 75, 0.34)',
     accentText: '#060609',
-    warmGold: '#E8C58E',      // Галерейная изюминка: тёплый охристый акцент
+    warmGold: '#E8C58E',
     warmGoldSoft: 'rgba(232, 197, 142, 0.13)',
-    cyanSignal: '#7FE3FF',    // Вспомогательный хай-тек телеметрический акцент
+    cyanSignal: '#7FE3FF',
     danger: '#FF5454',
   },
   fonts: {

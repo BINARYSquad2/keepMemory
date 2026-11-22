@@ -84,7 +84,7 @@ export function MemoryCanvas({
   const isPlayingRef = useRef(isPlaying);
   isPlayingRef.current = isPlaying;
 
-  // Держим предыдущий кадр под новым для плавного кроссфейда без чёрной вспышки
+
   const [imgPair, setImgPair] = useState<{
     prev: LoadedSkImage;
     curr: LoadedSkImage;
@@ -141,7 +141,7 @@ export function MemoryCanvas({
     }
   };
 
-  // При включённой музыке кадры альбома автоматически сменяются в темпе трека
+
   useEffect(() => {
     if (!isPlaying || photoCount <= 1) return;
     const speed = Math.max(0.45, style.motionSpeed || 1);
@@ -154,7 +154,7 @@ export function MemoryCanvas({
     return () => clearInterval(timer);
   }, [isPlaying, photoCount, currentIndex, style.motionSpeed]);
 
-  // pulse — основной цикл движения; activity — усиление при включённой музыке
+
   const pulse = useSharedValue(0);
   const activity = useSharedValue(isPlaying ? 1 : 0.35);
 
@@ -180,7 +180,7 @@ export function MemoryCanvas({
     };
   }, [style.motionSpeed, isPlaying, pulse, activity]);
 
-  // Аналоговая плёнка — двойная засветка
+
   const leakCenter = useDerivedValue(() =>
     vec(
       innerWidth * (0.12 + pulse.value * (0.55 + activity.value * 0.2)),
@@ -194,13 +194,13 @@ export function MemoryCanvas({
     vec(innerWidth * (0.88 - pulse.value * 0.16), photoHeight * (0.86 - pulse.value * 0.1))
   );
 
-  // Кольца ритма
+
   const ringRadius = useDerivedValue(() => 12 + pulse.value * (10 + energy * 14) * activity.value);
   const ringOuterRadius = useDerivedValue(
     () => 22 + pulse.value * (16 + energy * 18) * activity.value
   );
 
-  // Свет и аура — 3 плавающих импрессионистских световых ореола
+
   const aura1Center = useDerivedValue(() =>
     vec(innerWidth * (0.22 + pulse.value * 0.54), photoHeight * (0.24 + pulse.value * 0.12))
   );
@@ -212,7 +212,7 @@ export function MemoryCanvas({
   );
   const auraRadius = useDerivedValue(() => innerWidth * (0.52 + pulse.value * 0.18));
 
-  // Кинетика и ритм — диагональные векторы Кандинского
+
   const beamP1 = useDerivedValue(() =>
     vec(-20, photoHeight * (0.2 + pulse.value * 0.32 * activity.value))
   );
@@ -227,7 +227,7 @@ export function MemoryCanvas({
   );
   const kineticDotX = useDerivedValue(() => innerWidth * (0.2 + pulse.value * 0.6));
 
-  // Полоса музыкального ритма + 5 столбиков эквалайзера
+
   const barBaseY = photoHeight - 16;
   const rhythmBarWidth = useDerivedValue(
     () => (innerWidth - 88) * (0.18 + pulse.value * (0.45 + energy * 0.37) * activity.value)
@@ -264,7 +264,7 @@ export function MemoryCanvas({
         },
       ]}
     >
-      {/* Верхняя подпись карточки */}
+
       <View style={styles.metaBar}>
         <View style={styles.metaLeft}>
           <View
@@ -282,7 +282,7 @@ export function MemoryCanvas({
         </Text>
       </View>
 
-      {/* Полотно Skia — нажатие листает альбом */}
+
       <Pressable
         onPress={() => selectIndex(currentIndex + 1)}
         disabled={photoCount <= 1}
@@ -314,7 +314,7 @@ export function MemoryCanvas({
             />
           )}
 
-          {/* Атмосферная цветовая тонировка дня */}
+
           <Rect
             x={0}
             y={0}
@@ -329,7 +329,7 @@ export function MemoryCanvas({
             />
           </Rect>
 
-          {/* Верхняя и нижняя виньетка глубины */}
+
           <Rect x={0} y={0} width={innerWidth} height={photoHeight * 0.26} opacity={0.55}>
             <LinearGradient
               start={vec(0, 0)}
@@ -345,7 +345,7 @@ export function MemoryCanvas({
             />
           </Rect>
 
-          {/* Аналоговая плёнка */}
+
           {style.artStyle === 'analog_film' && (
             <>
               <Rect x={0} y={0} width={innerWidth} height={photoHeight} opacity={0.46}>
@@ -381,7 +381,7 @@ export function MemoryCanvas({
             </>
           )}
 
-          {/* Выставочная сетка */}
+
           {style.artStyle === 'minimal_editorial' && (
             <>
               <Line
@@ -441,7 +441,7 @@ export function MemoryCanvas({
             </>
           )}
 
-          {/* Свет и аура */}
+
           {style.artStyle === 'dreamy_aura' && (
             <>
               <Rect x={0} y={0} width={innerWidth} height={photoHeight} opacity={0.44}>
@@ -486,7 +486,7 @@ export function MemoryCanvas({
             </>
           )}
 
-          {/* Кинетика и ритм */}
+
           {style.artStyle === 'kinetic_zine' && (
             <>
               <Line p1={beamP1} p2={beamP2} color={accentCol} strokeWidth={2.2} opacity={0.82} />
@@ -529,7 +529,7 @@ export function MemoryCanvas({
             </>
           )}
 
-          {/* Процедурное зерно */}
+
           {grainDots.map((dot) => (
             <Rect
               key={dot.id}
@@ -542,7 +542,7 @@ export function MemoryCanvas({
             />
           ))}
 
-          {/* Полоса музыкального ритма + 5-полосный живой эквалайзер */}
+
           <Rect
             x={18}
             y={barBaseY}
@@ -567,7 +567,7 @@ export function MemoryCanvas({
           <Rect x={eqStartX + 28} y={eqY5} width={3} height={eqH5} color={accentCol} opacity={0.82} />
         </Canvas>
 
-        {/* Индикатор альбома поверх кадра */}
+
         {photoCount > 1 ? (
           <View pointerEvents="none" style={styles.albumOverlayTop}>
             <View style={styles.segmentsRow}>
@@ -590,7 +590,7 @@ export function MemoryCanvas({
         ) : null}
       </Pressable>
 
-      {/* Подпись карточки */}
+
       <View style={styles.footer}>
         <View style={styles.moodRow}>
           <View style={[styles.moodPill, { borderColor: accentCol }]}>

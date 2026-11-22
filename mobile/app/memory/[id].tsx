@@ -418,7 +418,7 @@ export default function MemoryDetailScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      {/* Шапка страницы */}
+
       <View style={styles.topBar}>
         <TouchableOpacity onPress={handleGoBack} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={18} color={THEME.colors.text} />
@@ -432,7 +432,7 @@ export default function MemoryDetailScreen() {
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
       >
-        {/* Визуальное воспоминание */}
+
         <View ref={cardRef} collapsable={false} style={styles.captureWrap}>
           <MemoryCanvas
             memory={memory}
@@ -442,7 +442,7 @@ export default function MemoryDetailScreen() {
           />
         </View>
 
-        {/* Лента альбома, если в дне несколько фотографий */}
+
         {photos.length > 1 ? (
           <View style={styles.albumCard}>
             <View style={styles.cardHeaderRow}>
@@ -487,7 +487,7 @@ export default function MemoryDetailScreen() {
           </View>
         ) : null}
 
-        {/* Кнопка сохранения PNG */}
+
         <TouchableOpacity
           onPress={handleExportCard}
           disabled={exporting}
@@ -533,7 +533,7 @@ export default function MemoryDetailScreen() {
           </Text>
         </TouchableOpacity>
 
-        {/* Карточка песни дня */}
+
         <View style={styles.card}>
           <View style={styles.cardHeaderRow}>
             <Text style={styles.cardTitleSmall}>Саундтрек дня</Text>
@@ -624,7 +624,7 @@ export default function MemoryDetailScreen() {
           ) : null}
         </View>
 
-        {/* Текст записи и озвучка под настроение */}
+
         <View style={styles.card}>
           <Text style={styles.cardTitleSmall}>Запись дня</Text>
           <Text style={[styles.entryText, { color: lightCol }]}>
@@ -667,7 +667,7 @@ export default function MemoryDetailScreen() {
           {speechError ? <Text style={styles.audioError}>{speechError}</Text> : null}
         </View>
 
-        {/* Разбор атмосферы конкретного дня */}
+
         <View style={styles.card}>
           <TouchableOpacity
             style={styles.cardHeaderRow}

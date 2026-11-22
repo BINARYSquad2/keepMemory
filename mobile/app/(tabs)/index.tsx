@@ -74,7 +74,7 @@ function parseLocalDate(value: string): Date | null {
 
 function startOfWeekMonday(date: Date): Date {
   const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  const dayOfWeek = (d.getDay() + 6) % 7; // Пн = 0, Вс = 6
+  const dayOfWeek = (d.getDay() + 6) % 7;
   d.setDate(d.getDate() - dayOfWeek);
   return d;
 }
@@ -467,7 +467,7 @@ export default function ArchiveScreen() {
               </Text>
             </View>
 
-            {/* Поиск и фильтрация по эмоциям */}
+
             {items.length > 0 ? (
               <View style={styles.controlsBlock}>
                 <View style={styles.searchWrap}>

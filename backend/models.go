@@ -2,7 +2,7 @@ package main
 
 import "time"
 
-// User — аккаунт владельца дневника.
+
 type User struct {
 	ID           string    `json:"id"`
 	Email        string    `json:"email"`
@@ -38,7 +38,7 @@ type StyleRecipe struct {
 	AIGenerated         bool      `json:"aiGenerated,omitempty"`
 }
 
-// Day — одно воспоминание пользователя (с альбомом из 1–6 фотографий).
+
 type Day struct {
 	ID          string      `json:"id"`
 	UserID      string      `json:"-"`

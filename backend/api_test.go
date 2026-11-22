@@ -75,7 +75,7 @@ func TestAuthenticatedDayWorkflow(t *testing.T) {
 	t.Cleanup(db.Close)
 
 	t.Setenv("JWT_SECRET", "test-secret")
-	t.Setenv("GEMINI_API_KEY", "") // тесты не должны зависеть от внешнего ИИ API
+	t.Setenv("GEMINI_API_KEY", "")
 
 	email := "test-" + uuid.NewString() + "@example.com"
 	secondEmail := "test-" + uuid.NewString() + "@example.com"

@@ -77,12 +77,12 @@ export default function CreateDayScreen() {
     try {
       previewPlayer.pause();
     } catch {
-      // плеер ещё не инициализирован
+
     }
     setPreviewingId(null);
   }, [previewPlayer]);
 
-  // Останавливаем превью песни, если пользователь переключился на другой экран
+
   useFocusEffect(
     useCallback(() => {
       return () => {
@@ -283,7 +283,7 @@ export default function CreateDayScreen() {
           </View>
         </View>
 
-        {/* Текст дня */}
+
         <View style={[styles.sectionCard, step1Done && styles.sectionCardReady]}>
           <View style={styles.sectionHeader}>
             <View style={styles.sectionTitleRow}>
@@ -313,7 +313,7 @@ export default function CreateDayScreen() {
           />
         </View>
 
-        {/* Альбом фотографий */}
+
         <View style={[styles.sectionCard, step2Done && styles.sectionCardReady]}>
           <View style={styles.sectionHeader}>
             <View style={styles.sectionTitleRow}>
@@ -411,7 +411,7 @@ export default function CreateDayScreen() {
           )}
         </View>
 
-        {/* Песня дня */}
+
         <View style={[styles.sectionCard, step3Done && styles.sectionCardReady]}>
           <View style={styles.sectionHeader}>
             <View style={styles.sectionTitleRow}>

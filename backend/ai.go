@@ -13,6 +13,7 @@ import (
 	"math"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -226,6 +227,11 @@ func callGeminiRecipe(
 	}
 
 	if resp.StatusCode != http.StatusOK {
+		snippet := []rune(strings.TrimSpace(string(respBytes)))
+		if len(snippet) > 300 {
+			snippet = append(snippet[:300], []rune("...")...)
+		}
+		log.Printf("Gemini API HTTP %d: %s", resp.StatusCode, string(snippet))
 		return aiRecipeResponse{}, upstreamStatusError{StatusCode: resp.StatusCode}
 	}
 
@@ -292,7 +298,7 @@ func mergeAndValidateRecipe(
 		style.Mood = ai.Mood
 	}
 
-	if isValidHex(ai.Palette[0]) && isValidHex(ai.Palette[1]) && isValidHex(ai.Palette[2]) {
+	if hasReadablePaletteContrast(ai.Palette) {
 		style.Palette = ai.Palette
 	}
 
@@ -329,6 +335,22 @@ func validFolderTitle(title string) bool {
 	return wordCount >= 3 && wordCount <= 7 && utf8.RuneCountInString(title) <= 64
 }
 
+func hasReadablePaletteContrast(palette [3]string) bool {
+	if !isValidHex(palette[0]) || !isValidHex(palette[1]) || !isValidHex(palette[2]) {
+		return false
+	}
+	bgLum := hexLuminance(palette[0])
+	textLum := hexLuminance(palette[2])
+	return bgLum <= 0.25 && textLum >= 0.70
+}
+
+func hexLuminance(hex string) float64 {
+	r, _ := strconv.ParseUint(hex[1:3], 16, 8)
+	g, _ := strconv.ParseUint(hex[3:5], 16, 8)
+	b, _ := strconv.ParseUint(hex[5:7], 16, 8)
+	return (0.2126*float64(r) + 0.7152*float64(g) + 0.0722*float64(b)) / 255.0
+}
+
 func fallbackAnalyzeDay(
 	user User,
 	text string,
@@ -357,11 +379,11 @@ func fallbackAnalyzeDay(
 		grain = 0.24
 		note = fmt.Sprintf("Контрастные линии и ускоренный пульс под «%s» фиксируют собранную динамику дня.", track.Title)
 
-	case containsAny(combined, "дожд", "ливн", "груст", "устал", "тоск", "пасмур", "туман", "тишин", "один", "ambient", "classical", "закат"):
+	case containsAny(combined, "дожд", "ливн", "груст", "устал", "тоск", "пасмур", "туман", "тишин", "одинок", "одиноч", "ambient", "classical", "закат"):
 		title = pickFallbackTitle(lowerText, "Тихий вечер и мягкий дождь", "Спокойная пауза на закате")
 		artStyle = "dreamy_aura"
 		typography = "serif_editorial"
-		if containsAny(lowerText, "груст", "устал", "тоск", "тяжел", "тяжёл", "дожд", "один") {
+		if containsAny(lowerText, "груст", "устал", "тоск", "тяжел", "тяжёл", "дожд", "одинок", "одиноч") {
 			mood = "sad"
 			moodLabel = "Тихая глубина"
 		} else {
@@ -431,7 +453,7 @@ func fallbackAnalyzeDay(
 		}
 	}
 
-	// Подмешиваем реальную извлечённую палитру фотографии
+	// Подмешиваем реальную извлечённую палитру фотографий
 	if visuals.HasColor {
 		palette = [3]string{visuals.BgHex, visuals.AccentHex, visuals.LightHex}
 	}
@@ -485,35 +507,34 @@ func pickFallbackTitle(lowerText, primary, secondary string) string {
 	return secondary
 }
 
-func extractPhotoVisuals(localPhotoPaths []string) photoVisuals {
-	if len(localPhotoPaths) == 0 {
-		return photoVisuals{}
-	}
+type colorAccumulator struct {
+	sumR, sumG, sumB float64
+	accR, accG, accB float64
+	accWeight        float64
+	totalPixels      float64
+}
 
-	file, err := os.Open(localPhotoPaths[0])
+func sampleImageColors(path string, acc *colorAccumulator) {
+	file, err := os.Open(path)
 	if err != nil {
-		return photoVisuals{}
+		return
 	}
 	defer file.Close()
 
 	img, _, err := image.Decode(file)
 	if err != nil {
-		return photoVisuals{}
+		return
 	}
 
 	bounds := img.Bounds()
 	w := bounds.Dx()
 	h := bounds.Dy()
 	if w <= 0 || h <= 0 {
-		return photoVisuals{}
+		return
 	}
 
 	stepX := maxInt(1, w/24)
 	stepY := maxInt(1, h/24)
-
-	var sumR, sumG, sumB float64
-	var accR, accG, accB, accWeight float64
-	var totalPixels float64
 
 	for y := bounds.Min.Y; y < bounds.Max.Y; y += stepY {
 		for x := bounds.Min.X; x < bounds.Max.X; x += stepX {
@@ -522,33 +543,44 @@ func extractPhotoVisuals(localPhotoPaths []string) photoVisuals {
 			g := float64(g16>>8) / 255.0
 			b := float64(b16>>8) / 255.0
 
-			sumR += r
-			sumG += g
-			sumB += b
-			totalPixels++
+			acc.sumR += r
+			acc.sumG += g
+			acc.sumB += b
+			acc.totalPixels++
 
 			_, sat, lum := rgbToHSL(r, g, b)
 			// Выразительные пиксели (не слишком тёмные и не выжженно-белые) задают акцент
 			if lum > 0.16 && lum < 0.86 {
 				weight := 0.25 + sat*sat*3.0
-				accR += r * weight
-				accG += g * weight
-				accB += b * weight
-				accWeight += weight
+				acc.accR += r * weight
+				acc.accG += g * weight
+				acc.accB += b * weight
+				acc.accWeight += weight
 			}
 		}
 	}
+}
 
-	if totalPixels == 0 {
+func extractPhotoVisuals(localPhotoPaths []string) photoVisuals {
+	if len(localPhotoPaths) == 0 {
 		return photoVisuals{}
 	}
 
-	avgR, avgG, avgB := sumR/totalPixels, sumG/totalPixels, sumB/totalPixels
+	var acc colorAccumulator
+	for _, path := range localPhotoPaths {
+		sampleImageColors(path, &acc)
+	}
+
+	if acc.totalPixels == 0 {
+		return photoVisuals{}
+	}
+
+	avgR, avgG, avgB := acc.sumR/acc.totalPixels, acc.sumG/acc.totalPixels, acc.sumB/acc.totalPixels
 	avgH, avgS, avgL := rgbToHSL(avgR, avgG, avgB)
 
 	var accentH, accentS float64
-	if accWeight > 0 {
-		accentH, accentS, _ = rgbToHSL(accR/accWeight, accG/accWeight, accB/accWeight)
+	if acc.accWeight > 0 {
+		accentH, accentS, _ = rgbToHSL(acc.accR/acc.accWeight, acc.accG/acc.accWeight, acc.accB/acc.accWeight)
 	} else {
 		accentH, accentS = avgH, math.Max(0.35, avgS)
 	}

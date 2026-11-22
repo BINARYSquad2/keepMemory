@@ -27,11 +27,40 @@ import {
   formatMemoryDate,
   getMemoryPhotos,
   MemoryDay,
+  MoodCategory,
 } from '../../types/memory';
 import { ART_STYLE_META, TYPOGRAPHY_LABELS } from '../../constants/artStyles';
 import { analyzeDayAtmosphere } from '../../services/atmosphereInterpreter';
 import { MemoryCanvas } from '../../components/MemoryCanvas';
 import { THEME } from '../../constants/theme';
+
+interface NarrationVoicePreset {
+  rate: number;
+  pitch: number;
+  label: string;
+}
+
+function getNarrationVoicePreset(
+  mood: MoodCategory,
+  energy: number
+): NarrationVoicePreset {
+  switch (mood) {
+    case 'sad':
+      return { rate: 0.85, pitch: 0.92, label: 'Тихий, замедленный голос (0.85x)' };
+    case 'calm':
+      return { rate: 0.9, pitch: 0.96, label: 'Спокойный созерцательный тон (0.90x)' };
+    case 'warm':
+      return { rate: 0.95, pitch: 0.99, label: 'Тёплая камерная подача (0.95x)' };
+    case 'happy':
+      return { rate: 1.04, pitch: 1.05, label: 'Живой и светлый темп (1.04x)' };
+    case 'energetic':
+      return {
+        rate: energy >= 0.78 ? 1.12 : 1.07,
+        pitch: 1.04,
+        label: `Динамичный собранный темп (${energy >= 0.78 ? '1.12' : '1.07'}x)`,
+      };
+  }
+}
 
 function formatSec(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) return '0:00';
@@ -137,6 +166,13 @@ export default function MemoryDetailScreen() {
     () => (memory ? analyzeDayAtmosphere(memory) : null),
     [memory]
   );
+  const voicePreset = useMemo(
+    () =>
+      memory && atmosphere
+        ? getNarrationVoicePreset(atmosphere.moodCategory, memory.track.energy ?? 0.5)
+        : null,
+    [memory, atmosphere]
+  );
 
   const previewUrl = memory?.track.previewUrl || '';
   const player = useAudioPlayer(previewUrl || null);
@@ -165,8 +201,8 @@ export default function MemoryDetailScreen() {
 
   useEffect(() => {
     return () => {
-      void Speech.stop().catch((error: unknown) => {
-        console.error('stop memory narration:', error);
+      void Speech.stop().catch((err: unknown) => {
+        console.error('stop memory narration:', err);
       });
     };
   }, [id]);
@@ -185,8 +221,8 @@ export default function MemoryDetailScreen() {
       player.pause();
     } else {
       if (speaking) {
-        void Speech.stop().catch((error: unknown) =>
-          setSpeechError(getErrorMessage(error))
+        void Speech.stop().catch((err: unknown) =>
+          setSpeechError(getErrorMessage(err))
         );
         setSpeaking(false);
       }
@@ -252,6 +288,10 @@ export default function MemoryDetailScreen() {
       setDeleting(true);
       setDeleteError(null);
       player.pause();
+      if (speaking) {
+        await Speech.stop().catch(() => {});
+        setSpeaking(false);
+      }
       const result = await deleteDay(id);
       if (result.warning) {
         if (Platform.OS === 'web') {
@@ -293,30 +333,40 @@ export default function MemoryDetailScreen() {
     if (speaking) {
       void Speech.stop()
         .then(() => setSpeaking(false))
-        .catch((error: unknown) => setSpeechError(getErrorMessage(error)));
+        .catch((err: unknown) => setSpeechError(getErrorMessage(err)));
       return;
     }
 
-    if (!memory || !atmosphere) return;
+    if (!memory || !atmosphere || !voicePreset) return;
     if (status.playing) player.pause();
     setSpeechError(null);
     try {
       Speech.speak(
-        `${memory.folderTitle}. ${memory.text}. ${atmosphere.curatorSummary}`,
+        `${memory.folderTitle}. ${memory.text}`,
         {
           language: 'ru-RU',
+          rate: voicePreset.rate,
+          pitch: voicePreset.pitch,
           onStart: () => setSpeaking(true),
           onDone: () => setSpeaking(false),
           onStopped: () => setSpeaking(false),
-          onError: (error) => {
+          onError: (err) => {
             setSpeaking(false);
-            setSpeechError(getErrorMessage(error));
+            setSpeechError(getErrorMessage(err));
           },
         }
       );
-    } catch (error) {
+    } catch (err) {
       setSpeaking(false);
-      setSpeechError(getErrorMessage(error));
+      setSpeechError(getErrorMessage(err));
+    }
+  };
+
+  const handleGoBack = () => {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace('/(tabs)');
     }
   };
 
@@ -331,7 +381,7 @@ export default function MemoryDetailScreen() {
     );
   }
 
-  if (!memory || !atmosphere) {
+  if (!memory || !atmosphere || !voicePreset) {
     return (
       <SafeAreaView style={styles.safe}>
         <View style={styles.center}>
@@ -345,7 +395,7 @@ export default function MemoryDetailScreen() {
             </TouchableOpacity>
           ) : null}
 
-          <TouchableOpacity onPress={() => router.back()}>
+          <TouchableOpacity onPress={handleGoBack}>
             <Text style={styles.backLink}>Вернуться в дневник</Text>
           </TouchableOpacity>
         </View>
@@ -370,12 +420,7 @@ export default function MemoryDetailScreen() {
     <SafeAreaView style={styles.safe}>
       {/* Шапка страницы */}
       <View style={styles.topBar}>
-        <TouchableOpacity
-          onPress={() =>
-            router.canGoBack() ? router.back() : router.replace('/(tabs)')
-          }
-          style={styles.backBtn}
-        >
+        <TouchableOpacity onPress={handleGoBack} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={18} color={THEME.colors.text} />
           <Text style={styles.backText}>Дневник</Text>
         </TouchableOpacity>
@@ -579,28 +624,48 @@ export default function MemoryDetailScreen() {
           ) : null}
         </View>
 
-        {/* Текст записи */}
+        {/* Текст записи и озвучка под настроение */}
         <View style={styles.card}>
           <Text style={styles.cardTitleSmall}>Запись дня</Text>
           <Text style={[styles.entryText, { color: lightCol }]}>
             {memory.text}
           </Text>
+
+          <View style={styles.metaDivider} />
+
+          <View style={styles.narrationRow}>
+            <View style={styles.narrationMeta}>
+              <Text style={styles.narrationTitle}>Озвучивание дня</Text>
+              <Text style={styles.narrationSub}>{voicePreset.label}</Text>
+            </View>
+
+            <TouchableOpacity
+              onPress={toggleNarration}
+              activeOpacity={0.82}
+              style={[
+                styles.narrationBtn,
+                { borderColor: accentCol },
+                speaking && { backgroundColor: accentCol },
+              ]}
+            >
+              <Ionicons
+                name={speaking ? 'stop' : 'volume-high-outline'}
+                size={16}
+                color={speaking ? '#07070A' : accentCol}
+              />
+              <Text
+                style={[
+                  styles.narrationBtnText,
+                  { color: speaking ? '#07070A' : THEME.colors.text },
+                ]}
+              >
+                {speaking ? 'Стоп' : 'Слушать'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {speechError ? <Text style={styles.audioError}>{speechError}</Text> : null}
         </View>
-        <TouchableOpacity
-          onPress={toggleNarration}
-          activeOpacity={0.82}
-          style={styles.exportBtn}
-        >
-          <Ionicons
-            name={speaking ? 'stop-circle-outline' : 'volume-high-outline'}
-            size={18}
-            color={THEME.colors.accent}
-          />
-          <Text style={styles.exportBtnText}>
-            {speaking ? 'Остановить озвучивание' : 'Озвучить воспоминание'}
-          </Text>
-        </TouchableOpacity>
-        {speechError ? <Text style={styles.audioError}>{speechError}</Text> : null}
 
         {/* Разбор атмосферы конкретного дня */}
         <View style={styles.card}>
@@ -664,6 +729,11 @@ export default function MemoryDetailScreen() {
                   {TYPOGRAPHY_LABELS[memory.style.typographyVariant] ??
                     memory.style.typographyVariant}
                 </Text>
+              </View>
+
+              <View style={styles.specRow}>
+                <Text style={styles.specKey}>Голос озвучки</Text>
+                <Text style={styles.specVal}>{voicePreset.label}</Text>
               </View>
 
               <View style={styles.paletteRow}>
@@ -887,6 +957,38 @@ const styles = StyleSheet.create({
     fontFamily: THEME.fonts.serif,
     fontSize: 16,
     lineHeight: 25,
+  },
+  narrationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  narrationMeta: {
+    flex: 1,
+    gap: 2,
+  },
+  narrationTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: THEME.colors.text,
+  },
+  narrationSub: {
+    fontSize: 12,
+    color: THEME.colors.textMuted,
+  },
+  narrationBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: THEME.radius.pill,
+    borderWidth: 1,
+  },
+  narrationBtnText: {
+    fontSize: 13,
+    fontWeight: '600',
   },
   moodHeaderRow: {
     flexDirection: 'row',

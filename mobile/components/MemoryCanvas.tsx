@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -81,9 +81,19 @@ export function MemoryCanvas({
 
   const photos = useMemo(() => getMemoryPhotos(memory), [memory]);
   const [internalIndex, setInternalIndex] = useState(0);
+  const isPlayingRef = useRef(isPlaying);
+  isPlayingRef.current = isPlaying;
+
+  // Держим предыдущий кадр под новым для плавного кроссфейда без чёрной вспышки
+  const [imgPair, setImgPair] = useState<{
+    prev: LoadedSkImage;
+    curr: LoadedSkImage;
+  }>({ prev: null, curr: null });
+  const fadeIn = useSharedValue(1);
 
   useEffect(() => {
     setInternalIndex(0);
+    setImgPair({ prev: null, curr: null });
   }, [memory.id]);
 
   const photoCount = photos.length;
@@ -94,14 +104,11 @@ export function MemoryCanvas({
   const safeUri = /^blob:/i.test(activeUri) ? null : activeUri;
   const loadedImage = useImage(safeUri);
 
-  // Держим предыдущий кадр под новым для плавного кроссфейда без чёрной вспышки
-  const [imgPair, setImgPair] = useState<{
-    prev: LoadedSkImage;
-    curr: LoadedSkImage;
-  }>({ prev: null, curr: null });
-  const fadeIn = useSharedValue(1);
-
   useEffect(() => {
+    if (!safeUri) {
+      setImgPair({ prev: null, curr: null });
+      return;
+    }
     if (!loadedImage) return;
     setImgPair((state) => {
       if (state.curr === loadedImage) return state;
@@ -109,10 +116,10 @@ export function MemoryCanvas({
     });
     fadeIn.value = 0;
     fadeIn.value = withTiming(1, {
-      duration: isPlaying ? 520 : 680,
+      duration: isPlayingRef.current ? 520 : 680,
       easing: Easing.out(Easing.cubic),
     });
-  }, [loadedImage, fadeIn, isPlaying]);
+  }, [loadedImage, safeUri, fadeIn]);
 
   const { style, track } = memory;
   const [

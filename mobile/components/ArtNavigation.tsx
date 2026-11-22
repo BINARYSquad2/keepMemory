@@ -170,6 +170,9 @@ export function ArtSideMenu({ visible, onClose }: ArtSideMenuProps) {
       setAuthStatus('signedOut');
       setAuthError(null);
       onClose();
+      setTimeout(() => {
+        router.replace('/auth/login');
+      }, 120);
     } catch (error) {
       setAuthError(getErrorMessage(error));
     }
@@ -237,7 +240,6 @@ export function ArtSideMenu({ visible, onClose }: ArtSideMenuProps) {
             },
           ]}
         >
-          {/* Шапка меню */}
           <View style={styles.drawerHeader}>
             <View style={styles.drawerBrandCol}>
               <Text style={styles.drawerBrand}>KeepMemory</Text>
@@ -250,7 +252,6 @@ export function ArtSideMenu({ visible, onClose }: ArtSideMenuProps) {
 
           <View style={styles.hairline} />
 
-          {/* Навигация */}
           <View style={styles.navList}>
             {navItems.map((item) => (
               <TouchableOpacity
@@ -281,7 +282,6 @@ export function ArtSideMenu({ visible, onClose }: ArtSideMenuProps) {
             ))}
           </View>
 
-          {/* Нижний блок аккаунта */}
           <View style={styles.drawerFooter}>
             <View style={styles.hairline} />
             {authError ? <Text style={styles.authError}>{authError}</Text> : null}

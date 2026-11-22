@@ -150,8 +150,7 @@ function classifyMood(
   day: MemoryDay,
   atmosphere: DayAtmosphereReading
 ): Exclude<MoodFilter, 'all'> {
-  // Поддержка будущего поля mood от ИИ на бэкенде
-  const serverMood = (day as MemoryDay & { mood?: string }).mood?.toLowerCase();
+  const serverMood = (day.mood ?? day.style?.mood)?.toLowerCase();
   if (
     serverMood === 'happy' ||
     serverMood === 'warm' ||
@@ -167,7 +166,7 @@ function classifyMood(
   const energy = day.track.energy ?? 0.5;
 
   if (
-    /груст|тоск|плак|тяжел|тяжёл|устал|один|пуст|боль|печал|дожд|пасмур/.test(combined) ||
+    /груст|тоск|плак|тяжел|тяжёл|устал|одинок|одиноч|пуст|боль|печал|дожд|пасмур/.test(combined) ||
     badge.includes('МЕЛАНХОЛИЯ') ||
     badge.includes('ТИХАЯ ПАУЗА')
   ) {
@@ -325,8 +324,10 @@ export default function ArchiveScreen() {
       .sort((a, b) => b.sortKey - a.sortKey)
       .map(({ sortKey: _s, ...section }) => ({
         ...section,
-        data: [...section.data].sort((a, b) =>
-          (b.day.date || b.day.createdAt).localeCompare(a.day.date || a.day.createdAt)
+        data: [...section.data].sort(
+          (a, b) =>
+            (b.day.date || '').localeCompare(a.day.date || '') ||
+            (b.day.createdAt || '').localeCompare(a.day.createdAt || '')
         ),
       }));
   }, [filteredItems]);

@@ -40,7 +40,7 @@ Set-Location C:\path\to\KeepMemory\backend
 go run .
 ```
 
-При старте backend несколько раз повторяет подключение к PostgreSQL при временном сбое, затем создаёт `users`, `days` и индекс, если они отсутствуют. Существующая схема не меняется этой доработкой. `/health` проверяет процесс, `/health/ready` дополнительно проверяет БД и предназначен для health check Railway.
+При старте backend несколько раз повторяет подключение к PostgreSQL при временном сбое, затем создаёт `users`, `days` и индекс, если они отсутствуют. Существующая схема не меняется этой доработкой. `/health` проверяет процесс, `/health/ready` дополнительно проверяет БД и хранилище и предназначен для health check Railway.
 
 ## Запуск мобильного/веб-клиента
 
@@ -54,18 +54,18 @@ npx expo start
 
 URL API выбирается в таком порядке:
 
-1. `EXPO_PUBLIC_API_URL`, если задана;
+1. `EXPO_PUBLIC_API_URL`, если задана (в `mobile/.env`, переменной среды или `mobile/eas.json`);
 2. Android: `http://10.0.2.2:8080`;
 3. iOS Simulator и веб: `http://localhost:8080`.
 
-Для физического телефона задайте IP компьютера в локальной сети до старта Expo:
+Для физического телефона задайте IP компьютера в локальной сети (или URL Railway) до старта Expo:
 
 ```powershell
 $env:EXPO_PUBLIC_API_URL = "http://192.168.1.10:8080"
-npx expo start
+npx expo start -c
 ```
 
-Телефон и компьютер должны быть в одной сети; порт backend должен быть доступен через брандмауэр. Если URL меняется после старта Metro, перезапустите Expo, чтобы клиент подхватил переменную.
+Телефон и компьютер должны быть в одной сети (при локальном запуске); порт backend должен быть доступен через брандмауэр. Если URL меняется после старта Metro, перезапустите Expo с `-c`, чтобы клиент подхватил переменную.
 
 ## Проверки
 
@@ -101,22 +101,20 @@ npx tsc --noEmit
 3. Сгенерируйте случайный `JWT_SECRET` длиной не менее 32 байт и задайте его в Variables. Сохраняйте это значение между релизами: замена аннулирует действующие токены.
 4. Добавьте Railway Volume, смонтируйте его в `/data` и задайте `UPLOADS_DIR=/data/uploads`. Без постоянного тома загруженные фото могут исчезнуть при пересоздании сервиса.
 5. Установите health check path `/health/ready`. Railway задаёт `PORT`; приложение слушает его автоматически.
-6. Если включён web-клиент, задайте `CORS_ALLOWED_ORIGINS` точным origin сайта (например, `https://app.example.com`). Нативный клиенту CORS не нужен.
+6. Если включён web-клиент, задайте `CORS_ALLOWED_ORIGINS` точным origin сайта (например, `https://app.example.com`). Нативному клиенту CORS не нужен.
 7. Включите штатные резервные копии PostgreSQL и тома. `GET /api/backup` — только ручной экспорт пользовательских данных.
-8. После деплоя войдите в Expo/EAS, свяжите проект и добавьте публичный HTTPS URL сервиса как переменную `EXPO_PUBLIC_API_URL` в EAS environment `preview` через настройки проекта на expo.dev:
+8. После деплоя войдите в Expo/EAS, свяжите проект и пропишите публичный HTTPS URL сервиса в `EXPO_PUBLIC_API_URL` внутри `mobile/eas.json` (профили `preview` и `production`) или в EAS environment на `expo.dev`:
 
-   ```powershell
-   Set-Location C:\path\to\KeepMemory\mobile
-   npx eas-cli login
-   npx eas-cli init
-   ```
+```powershell
+Set-Location C:\path\to\KeepMemory\mobile
+npx eas-cli@latest login
+npx eas-cli@latest build:configure
+```
 
-   После настройки переменной соберите APK профилем `preview` из `mobile/eas.json`:
+После настройки переменной соберите APK профилем `preview` из `mobile/eas.json`:
 
-   ```powershell
-   npx eas-cli build --platform android --profile preview
-   ```
+```powershell
+npx eas-cli@latest build --platform android --profile preview
+```
 
-   Для локальной проверки можно задать `$env:EXPO_PUBLIC_API_URL` перед `npx expo start`. APK, собранный до настройки URL, продолжит обращаться к старому адресу. Перед сборкой проверьте идентификатор приложения `com.keepmemory.app`.
-
-Railway-аккаунт, база, Volume, секреты и домен должны быть доступны владельцу проекта; наличие конфигурации в репозитории само по себе не публикует сервис и не создаёт облачные ресурсы.
+APK, собранный до настройки URL, продолжит обращаться к старому адресу. Перед сборкой проверьте идентификатор приложения `com.keepmemory.app`.

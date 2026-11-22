@@ -69,7 +69,7 @@ export async function hasAuthToken(): Promise<boolean> {
 }
 
 /**
- * Превращает относительный путь с бэкенда (/uploads/...) в полный URL.
+ * Превращает относительный путь с бэкенда (/api/media/... или /uploads/...) в полный URL.
  * Работает одинаково с локальным Go-сервером и облачным Railway.
  */
 export function resolveMediaUrl(uri: string): string {
@@ -106,6 +106,19 @@ async function saveLocalExtraPhotos(dayId: string, uris: string[]): Promise<void
   }
 }
 
+async function clearLocalExtraPhotos(dayId: string): Promise<void> {
+  const key = albumStorageKey(dayId);
+  try {
+    if (Platform.OS === 'web') {
+      globalThis.localStorage?.removeItem(key);
+    } else {
+      await SecureStore.deleteItemAsync(key);
+    }
+  } catch {
+    // Игнорируем, если локального кэша не было
+  }
+}
+
 async function readLocalExtraPhotos(dayId: string): Promise<string[]> {
   const key = albumStorageKey(dayId);
   try {
@@ -131,8 +144,6 @@ async function hydrateMemoryDay(day: MemoryDay): Promise<MemoryDay> {
     ? day.photoUris.map(resolveMediaUrl).filter(Boolean)
     : [];
 
-  // Если сервер уже отдаёт массив фото — используем его,
-  // иначе подмешиваем сохранённые дополнительные кадры с устройства.
   const extras = serverPhotos.length > 1 ? [] : await readLocalExtraPhotos(day.id);
 
   const merged: string[] = [];
@@ -299,10 +310,12 @@ export async function getDay(id: string): Promise<MemoryDay> {
 }
 
 export async function deleteDay(id: string): Promise<{ warning?: string }> {
-  return request<{ deleted: boolean; warning?: string }>(
+  const result = await request<{ deleted: boolean; warning?: string }>(
     `/api/days/${encodeURIComponent(id)}`,
     { method: 'DELETE' }
   );
+  await clearLocalExtraPhotos(id);
+  return result;
 }
 
 export async function searchTracks(query: string): Promise<TrackInfo[]> {
@@ -407,10 +420,11 @@ function buildMultipartBody(params: {
   ];
 
   for (const photo of params.photos) {
+    const safeName = photo.name.replace(/["\r\n]/g, '_');
     chunks.push(
       utf8ToBytes(
         `--${boundary}\r\n` +
-          `Content-Disposition: form-data; name="${photo.fieldName}"; filename="${photo.name}"\r\n` +
+          `Content-Disposition: form-data; name="${photo.fieldName}"; filename="${safeName}"\r\n` +
           `Content-Type: ${photo.type}\r\n\r\n`
       )
     );
@@ -526,15 +540,14 @@ export async function createDay(input: {
   const coverDraft = drafts[0];
   const extraUris = drafts.slice(1).map((p) => p.uri).filter(Boolean);
   const allowCloudAI = input.allowCloudAI === true;
+  const allHaveBase64 = drafts.every((draft) => Boolean(draft.base64));
 
   let created: MemoryDay;
 
-  if (Platform.OS !== 'web' && coverDraft.base64) {
+  if (Platform.OS !== 'web' && allHaveBase64) {
     try {
       created = await sendNativeMultipartDay(input.text, input.track, drafts, allowCloudAI);
     } catch (err) {
-      // Если сервер ещё не принимает большой альбом (HTTP 413), отправляем обложку,
-      // а остальные кадры сохраняем локально до обновления лимита на бэкенде.
       if (drafts.length > 1 && err instanceof ApiError && err.status === 413) {
         created = await sendNativeMultipartDay(input.text, input.track, [coverDraft], allowCloudAI);
       } else {

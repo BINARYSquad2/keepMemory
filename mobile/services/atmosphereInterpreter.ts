@@ -172,7 +172,7 @@ const MOOD_SIGNALS: MoodSignal[] = [
     badge: 'Тихая пауза',
     captionHint: 'Рассеянная дымка и замедленный ритм оставляют пространство для выдоха.',
     textCue: 'усталость, тишина или желание замедлиться',
-    patterns: [/устал|груст|тяжел|тяжёл|один|тишин|молча|выдох|отдох|сон|спать|тоск/i],
+    patterns: [/устал|груст|тяжел|тяжёл|одинок|одиноч|тишин|молча|выдох|отдох|сон|спать|тоск/i],
   },
 ];
 
@@ -276,7 +276,7 @@ export function analyzeDayAtmosphere(memory: MemoryDay): DayAtmosphereReading {
     ? `${baseTextDriver} ${personalizationNote}`
     : baseTextDriver;
 
-  const paletteDriver = `Из фотографии извлечена ${paletteMetrics.tempLabel} и ${paletteMetrics.contrastLabel}; зернистость настроена на ${grainPct}%.`;
+  const paletteDriver = `Из фотографий извлечена ${paletteMetrics.tempLabel} и ${paletteMetrics.contrastLabel}; зернистость настроена на ${grainPct}%.`;
 
   const albumDriver =
     photoCount > 1

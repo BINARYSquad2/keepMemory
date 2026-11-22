@@ -40,10 +40,10 @@
     "/health/ready": {
       "get": {
         "tags": ["System"],
-        "summary": "Проверить готовность API и PostgreSQL",
+        "summary": "Проверить готовность API, PostgreSQL и хранилища медиа",
         "responses": {
           "200": { "description": "Сервис готов" },
-          "503": { "description": "База данных временно недоступна" }
+          "503": { "description": "База данных или хранилище временно недоступны" }
         }
       }
     },
@@ -185,7 +185,7 @@
       "post": {
         "tags": ["Days"],
         "summary": "Создать запись дня",
-        "description": "Текст должен содержать не менее 10 символов; требуется минимум одна фотография и трек либо songQuery. Для загрузки файлов используйте multipart/form-data. Принимаются JPEG/PNG/WebP/HEIC до 15 MiB каждый; общий лимит тела запроса — 35 MiB. allowCloudAI включает отправку перечисленных текстовых данных в Gemini только после явного согласия пользователя.",
+        "description": "Текст должен содержать не менее 10 символов; требуется минимум одна фотография и трек либо songQuery. Для загрузки файлов используйте multipart/form-data. Принимаются JPEG/PNG/WebP/HEIC до 15 MiB каждый; общий лимит тела запроса — 95 MiB. allowCloudAI включает отправку перечисленных текстовых данных в Gemini только после явного согласия пользователя.",
         "security": [{ "bearerAuth": [] }],
         "requestBody": {
           "required": true,
@@ -649,12 +649,16 @@
       },
       "CreateDayMultipartRequest": {
         "type": "object",
-        "required": ["text", "track"],
+        "required": ["text"],
         "properties": {
           "text": { "type": "string", "minLength": 10, "maxLength": 4000 },
           "track": {
             "type": "string",
             "description": "JSON-сериализованный объект TrackInput."
+          },
+          "songQuery": {
+            "type": "string",
+            "description": "Поисковый запрос трека, если объект track не передан."
           },
           "photo": {
             "type": "string",
@@ -673,7 +677,7 @@
             "description": "Явное согласие на обработку текста и части данных профиля внешней моделью Gemini."
           }
         },
-        "description": "Требуются track (JSON-строка с объектом трека) и минимум один файл в photo/photos. songQuery поддерживается только в JSON-запросе."
+        "description": "Требуются track (JSON-строка) или songQuery, а также минимум один файл в photo/photos."
       }
     }
   }

@@ -47,7 +47,7 @@ func run() error {
 
 func newApp(db *pgxpool.Pool) *fiber.App {
 	app := fiber.New(fiber.Config{
-		BodyLimit: 35 * 1024 * 1024,
+		BodyLimit: 95 * 1024 * 1024,
 	})
 	api := &apiServer{db: db}
 

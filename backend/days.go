@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+	"github.com/gofiber/fiber/v2"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -67,6 +67,7 @@ func (s *apiServer) createDay(c *fiber.Ctx) error {
 		}
 
 		input.Text = firstFormValue(form.Value["text"])
+		input.SongQuery = firstFormValue(form.Value["songQuery"])
 		if trackRaw := firstFormValue(form.Value["track"]); trackRaw != "" {
 			if err := json.Unmarshal([]byte(trackRaw), &input.Track); err != nil {
 				input.Track = nil
@@ -424,16 +425,19 @@ func (s *apiServer) deleteDay(c *fiber.Ctx) error {
 
 		currentURI := "/api/media/" + userID + "/" + filename
 		legacyURI := "/uploads/" + filename
+		legacyPrivateURI := "/api/media/" + filename
 		var stillReferenced bool
 		err := s.db.QueryRow(c.UserContext(),
 			`SELECT EXISTS (
 				SELECT 1 FROM days
-				WHERE photo_uri IN ($1, $2)
+				WHERE photo_uri IN ($1, $2, $3)
 				   OR photo_uris ? $1
 				   OR photo_uris ? $2
+				   OR photo_uris ? $3
 			)`,
 			currentURI,
 			legacyURI,
+			legacyPrivateURI,
 		).Scan(&stillReferenced)
 		if err != nil {
 			log.Printf("check remaining media references: %v", err)

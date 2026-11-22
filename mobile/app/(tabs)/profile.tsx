@@ -202,12 +202,16 @@ export default function ProfileScreen() {
             </View>
 
             <View style={styles.field}>
-              <Text style={styles.fieldLabel}>Интересы и настроение дневника</Text>
+              <View style={styles.fieldLabelRow}>
+                <Text style={styles.fieldLabel}>Интересы и настроение дневника</Text>
+                <Text style={styles.charCount}>{bio.length}/500</Text>
+              </View>
               <TextInput
                 style={[styles.input, styles.bioInput]}
                 placeholder="Например: люблю плёночную фотографию, ночные прогулки, тихий инди-рок и короткие заметки без пафоса…"
                 placeholderTextColor={THEME.colors.textDim}
                 multiline
+                maxLength={500}
                 textAlignVertical="top"
                 value={bio}
                 onChangeText={(v) => {
@@ -352,10 +356,19 @@ const styles = StyleSheet.create({
     color: THEME.colors.text,
   },
   field: { gap: 6 },
+  fieldLabelRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
   fieldLabel: {
     fontSize: 13,
     fontWeight: '600',
     color: THEME.colors.text,
+  },
+  charCount: {
+    fontSize: 11,
+    color: THEME.colors.textDim,
   },
   fieldHint: {
     fontSize: 12,

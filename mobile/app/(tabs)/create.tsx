@@ -557,6 +557,9 @@ export default function CreateDayScreen() {
                     <TouchableOpacity
                       style={styles.trackResultMain}
                       onPress={() => {
+                        if (previewingId !== track.id) {
+                          stopPreview();
+                        }
                         setSelectedTrack(track);
                         setError(null);
                       }}

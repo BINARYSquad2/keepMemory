@@ -127,15 +127,35 @@ func energyByGenre(genre string) float64 {
 
 	switch {
 	case strings.Contains(genre, "electronic"),
+		strings.Contains(genre, "dance"),
+		strings.Contains(genre, "house"),
+		strings.Contains(genre, "techno"),
 		strings.Contains(genre, "hip-hop"),
+		strings.Contains(genre, "rap"),
 		strings.Contains(genre, "rock"),
+		strings.Contains(genre, "punk"),
 		strings.Contains(genre, "metal"):
 		return 0.85
+
+	case strings.Contains(genre, "pop"),
+		strings.Contains(genre, "funk"),
+		strings.Contains(genre, "disco"),
+		strings.Contains(genre, "alternative"),
+		strings.Contains(genre, "r&b"),
+		strings.Contains(genre, "k-pop"):
+		return 0.68
 
 	case strings.Contains(genre, "jazz"),
 		strings.Contains(genre, "ambient"),
 		strings.Contains(genre, "classical"),
-		strings.Contains(genre, "folk"):
+		strings.Contains(genre, "folk"),
+		strings.Contains(genre, "acoustic"),
+		strings.Contains(genre, "singer"),
+		strings.Contains(genre, "soundtrack"),
+		strings.Contains(genre, "blues"),
+		strings.Contains(genre, "soul"),
+		strings.Contains(genre, "chill"),
+		strings.Contains(genre, "lo-fi"):
 		return 0.35
 
 	default:
